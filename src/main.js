@@ -8,7 +8,8 @@ const MAX_SUBSTEPS = 5;
 const LAYER_NON_MOVING = 0;
 const LAYER_MOVING = 1;
 const LAYER_PORTAL = 2;
-const NUM_LAYERS = 3;
+const LAYER_STUCK = 3;
+const NUM_LAYERS = 4;
 
 const PLAYER_RADIUS = 0.28;
 const PLAYER_HALF_HEIGHT = 0.55;
@@ -44,6 +45,8 @@ const PORTAL_RADIUS = 3.2;
 const PORTAL_DURATION = 7.5;
 const PORTAL_CAPTURE_HEIGHT = 1.5;
 const PORTAL_REMOVE_DEPTH = -0.65;
+const CAPSULE_GROW = 2.8;
+const CAPSULE_STICK_PADDING = 0.05;
 
 const state = {
   J: null,
@@ -61,6 +64,7 @@ const state = {
   fx: null,
   blackHoles: [],
   portals: [],
+  stickyCapsules: [],
   armed: [],
   held: null,
   highlighted: null,
@@ -105,6 +109,18 @@ const tmpColor = new THREE.Color();
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const PORTAL_BASE_COLOR = new THREE.Color(0x59c3ff);
+const stickyCapsulePos = new THREE.Vector3();
+const stickyCapsuleQuat = new THREE.Quaternion();
+const stickyCapsuleInverse = new THREE.Quaternion();
+const stickyCapsuleAxis = new THREE.Vector3();
+const stickyCapsuleA = new THREE.Vector3();
+const stickyCapsuleB = new THREE.Vector3();
+const stickyPoint = new THREE.Vector3();
+const stickyClosest = new THREE.Vector3();
+const stickyObjectQuat = new THREE.Quaternion();
+const stickyOffset = new THREE.Vector3();
+const stickyRotation = new THREE.Quaternion();
+const stickyTarget = new THREE.Vector3();
 
 let renderer;
 let scene;
@@ -1232,6 +1248,7 @@ async function initPhysics() {
   bpInterface.MapObjectToBroadPhaseLayer(LAYER_NON_MOVING, bpStatic);
   bpInterface.MapObjectToBroadPhaseLayer(LAYER_MOVING, bpMoving);
   bpInterface.MapObjectToBroadPhaseLayer(LAYER_PORTAL, bpMoving);
+  bpInterface.MapObjectToBroadPhaseLayer(LAYER_STUCK, bpMoving);
   J.destroy(bpStatic);
   J.destroy(bpMoving);
 
@@ -1694,6 +1711,8 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY) {
   let friction = 0.6;
   let restitution = 0.18;
   let angularDamping = 0.15;
+  let capsuleHalf = 0;
+  let capsuleRadius = 0;
 
   if (type === "box") {
     const size = 0.35 + Math.random() * 0.45;
@@ -1713,6 +1732,8 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY) {
   } else if (type === "capsule") {
     const r = 0.11 + Math.random() * 0.11;
     const half = 0.18 + Math.random() * 0.14;
+    capsuleHalf = half;
+    capsuleRadius = r;
     shape = new J.CapsuleShape(half, r);
     scale = new THREE.Vector3(r * 2, half + r, r * 2);
     bounds = new THREE.Vector3(r * 2, (half + r) * 2, r * 2);
@@ -1810,14 +1831,27 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY) {
   const id = body.GetID();
   state.bodyInterface.AddBody(id, J.EActivation_Activate);
 
+  if (type === "capsule") shape.AddRef();
+
   const object = {
     type,
     name: OBJECT_NAMES[type],
     body,
     id,
+    shape,
+    density,
     radius,
     scale,
     bounds,
+    baseScale: type === "capsule" ? scale.clone() : null,
+    baseBounds: type === "capsule" ? bounds.clone() : null,
+    baseRadius: radius,
+    capsuleHalf,
+    capsuleRadius,
+    sticky: false,
+    grownShape: null,
+    stuckTo: null,
+    stuckObjects: type === "capsule" ? [] : null,
     position: spawnPosition.clone(),
     quaternion: spawnRotation.clone(),
     instanceMesh: mesh,
@@ -1991,7 +2025,8 @@ function findGrabTarget() {
       object === state.held ||
       object.exploded ||
       object.absorbed ||
-      object.portalFall
+      object.portalFall ||
+      object.stuckTo
     ) {
       continue;
     }
@@ -2052,6 +2087,7 @@ function throwHeld() {
   const vz = aimDir.z * THROW_SPEED + playerVel.z * 0.5;
 
   state.bodyInterface.SetGravityFactor(object.id, 1);
+  if (object.type === "capsule") activateStickyCapsule(object);
   setBodyVelocity(object.id, vx, vy, vz);
 
   const spin = state.tmpVec3b;
@@ -2072,6 +2108,184 @@ function throwHeld() {
   }
 
   state.held = null;
+}
+
+function activateStickyCapsule(object) {
+  if (object.sticky) return;
+
+  const J = state.J;
+  const shape = new J.CapsuleShape(
+    object.capsuleHalf * CAPSULE_GROW,
+    object.capsuleRadius * CAPSULE_GROW
+  );
+  shape.SetDensity(object.density);
+  shape.AddRef();
+
+  object.sticky = true;
+  object.grownShape = shape;
+  object.scale.copy(object.baseScale).multiplyScalar(CAPSULE_GROW);
+  object.bounds.copy(object.baseBounds).multiplyScalar(CAPSULE_GROW);
+  object.radius = object.baseRadius * CAPSULE_GROW;
+
+  state.bodyInterface.SetShape(
+    object.id,
+    shape,
+    true,
+    J.EActivation_Activate
+  );
+  state.bodyInterface.ActivateBody(object.id);
+
+  if (!state.stickyCapsules.includes(object)) {
+    state.stickyCapsules.push(object);
+  }
+}
+
+function releaseStuckObjects(capsule) {
+  const stuckObjects = capsule.stuckObjects;
+  if (!stuckObjects || !stuckObjects.length) return;
+
+  for (const object of stuckObjects) {
+    object.stuckTo = null;
+    object.stuckOffset = null;
+    object.stuckRotation = null;
+    if (object.exploded || object.absorbed) continue;
+
+    state.bodyInterface.SetObjectLayer(object.id, LAYER_MOVING);
+    state.bodyInterface.SetGravityFactor(object.id, 1);
+    state.bodyInterface.ActivateBody(object.id);
+  }
+
+  stuckObjects.length = 0;
+}
+
+function attachStuckObject(capsule, object) {
+  const p = object.body.GetPosition();
+  const q = object.body.GetRotation();
+  stickyPoint.set(p.GetX(), p.GetY(), p.GetZ());
+  stickyObjectQuat.set(q.GetX(), q.GetY(), q.GetZ(), q.GetW());
+  stickyCapsuleInverse.copy(stickyCapsuleQuat).invert();
+
+  object.stuckOffset = stickyPoint
+    .clone()
+    .sub(stickyCapsulePos)
+    .applyQuaternion(stickyCapsuleInverse);
+  object.stuckRotation = stickyCapsuleInverse
+    .clone()
+    .multiply(stickyObjectQuat);
+  object.stuckTo = capsule;
+
+  capsule.stuckObjects.push(object);
+  state.bodyInterface.SetGravityFactor(object.id, 0);
+  state.bodyInterface.SetObjectLayer(object.id, LAYER_STUCK);
+  state.bodyInterface.SetLinearAndAngularVelocity(
+    object.id,
+    zeroVec3(),
+    zeroVec3()
+  );
+}
+
+function updateStickyCapsules() {
+  for (const capsule of state.stickyCapsules) {
+    if (!capsule.sticky || capsule.exploded || capsule.absorbed) continue;
+
+    const p = capsule.body.GetPosition();
+    const q = capsule.body.GetRotation();
+    stickyCapsulePos.set(p.GetX(), p.GetY(), p.GetZ());
+    stickyCapsuleQuat.set(q.GetX(), q.GetY(), q.GetZ(), q.GetW());
+    stickyCapsuleAxis.set(0, 1, 0).applyQuaternion(stickyCapsuleQuat);
+
+    const half = capsule.capsuleHalf * CAPSULE_GROW;
+    const radius = capsule.capsuleRadius * CAPSULE_GROW;
+    stickyCapsuleA.copy(stickyCapsulePos).addScaledVector(
+      stickyCapsuleAxis,
+      -half
+    );
+    stickyCapsuleB.copy(stickyCapsulePos).addScaledVector(
+      stickyCapsuleAxis,
+      half
+    );
+
+    for (const object of capsule.stuckObjects) {
+      if (object.exploded || object.absorbed) continue;
+
+      stickyTarget
+        .copy(object.stuckOffset)
+        .applyQuaternion(stickyCapsuleQuat)
+        .add(stickyCapsulePos);
+      stickyRotation
+        .copy(stickyCapsuleQuat)
+        .multiply(object.stuckRotation);
+
+      state.tmpRVec3.Set(
+        stickyTarget.x,
+        stickyTarget.y,
+        stickyTarget.z
+      );
+      state.tmpQuat.Set(
+        stickyRotation.x,
+        stickyRotation.y,
+        stickyRotation.z,
+        stickyRotation.w
+      );
+      state.bodyInterface.SetPositionAndRotation(
+        object.id,
+        state.tmpRVec3,
+        state.tmpQuat,
+        state.J.EActivation_DontActivate
+      );
+    }
+
+    const segmentX = stickyCapsuleB.x - stickyCapsuleA.x;
+    const segmentY = stickyCapsuleB.y - stickyCapsuleA.y;
+    const segmentZ = stickyCapsuleB.z - stickyCapsuleA.z;
+    const segmentLengthSq =
+      segmentX * segmentX + segmentY * segmentY + segmentZ * segmentZ;
+
+    for (const object of state.objects) {
+      if (
+        object === capsule ||
+        object.sticky ||
+        object.stuckTo ||
+        object.exploded ||
+        object.absorbed ||
+        object.portalFall ||
+        object === state.held
+      ) {
+        continue;
+      }
+
+      const op = object.body.GetPosition();
+      stickyPoint.set(op.GetX(), op.GetY(), op.GetZ());
+
+      const relX = stickyPoint.x - stickyCapsuleA.x;
+      const relY = stickyPoint.y - stickyCapsuleA.y;
+      const relZ = stickyPoint.z - stickyCapsuleA.z;
+      let t = 0;
+      if (segmentLengthSq > 0.000001) {
+        t =
+          (relX * segmentX + relY * segmentY + relZ * segmentZ) /
+          segmentLengthSq;
+        t = THREE.MathUtils.clamp(t, 0, 1);
+      }
+
+      stickyClosest.set(
+        stickyCapsuleA.x + segmentX * t,
+        stickyCapsuleA.y + segmentY * t,
+        stickyCapsuleA.z + segmentZ * t
+      );
+
+      const contactRadius =
+        radius + object.radius + CAPSULE_STICK_PADDING;
+      if (
+        stickyClosest.distanceToSquared(stickyPoint) >
+        contactRadius * contactRadius
+      ) {
+        continue;
+      }
+
+      attachStuckObject(capsule, object);
+    }
+  }
 }
 
 function armObject(object) {
@@ -2164,6 +2378,17 @@ function explodeBall(object) {
 function absorbObject(object) {
   if (object.absorbed || object.exploded) return;
 
+  if (object.stuckObjects && object.stuckObjects.length) {
+    const attached = object.stuckObjects.slice();
+    object.stuckObjects.length = 0;
+    for (const stuck of attached) {
+      stuck.stuckTo = null;
+      stuck.stuckOffset = null;
+      stuck.stuckRotation = null;
+      absorbObject(stuck);
+    }
+  }
+
   state.bodyInterface.RemoveBody(object.id);
   object.absorbed = true;
   object.fuse = 0;
@@ -2197,7 +2422,14 @@ function updateBlackHoles(dt) {
     );
 
     for (const object of state.objects) {
-      if (object.exploded || object.absorbed || object === state.held) continue;
+      if (
+        object.exploded ||
+        object.absorbed ||
+        object.stuckTo ||
+        object === state.held
+      ) {
+        continue;
+      }
 
       const p = object.body.GetPosition();
       const dx = hole.position.x - p.GetX();
@@ -2268,6 +2500,7 @@ function updatePortals(dt) {
         object.exploded ||
         object.absorbed ||
         object.portalFall ||
+        object.stuckTo ||
         object === state.held
       ) {
         continue;
@@ -2300,7 +2533,14 @@ function applyBlast(x, y, z) {
   const impulse = state.tmpVec3;
 
   for (const object of state.objects) {
-    if (object.exploded || object.absorbed || object === state.held) continue;
+    if (
+      object.exploded ||
+      object.absorbed ||
+      object.stuckTo ||
+      object === state.held
+    ) {
+      continue;
+    }
 
     const dx = object.position.x - x;
     const dy = object.position.y - y;
@@ -2511,12 +2751,37 @@ function resetWorld() {
   resetPortalFx();
 
   for (const object of state.objects) {
+    if (object.stuckObjects && object.stuckObjects.length) {
+      releaseStuckObjects(object);
+    }
+  }
+  state.stickyCapsules.length = 0;
+
+  for (const object of state.objects) {
     if (object.exploded || object.absorbed) {
       state.bodyInterface.AddBody(object.id, J.EActivation_Activate);
       object.exploded = false;
       object.absorbed = false;
     }
 
+    if (object.type === "capsule") {
+      if (object.grownShape) {
+        state.bodyInterface.SetShape(
+          object.id,
+          object.shape,
+          true,
+          J.EActivation_Activate
+        );
+        object.grownShape.Release();
+        object.grownShape = null;
+      }
+      object.sticky = false;
+      object.scale.copy(object.baseScale);
+      object.bounds.copy(object.baseBounds);
+      object.radius = object.baseRadius;
+    }
+
+    object.stuckTo = null;
     state.bodyInterface.SetObjectLayer(object.id, LAYER_MOVING);
     object.portalFall = false;
 
@@ -2573,7 +2838,9 @@ function updateHighlight() {
           ? "КУБ · ЛКМ — бросить, создаёт чёрную дыру · E — отпустить"
           : state.held.type === "frame"
             ? "РАМА · ЛКМ — бросить, создаёт портал · E — отпустить"
-            : "ЛКМ — бросить · E — отпустить",
+            : state.held.type === "capsule"
+              ? "КАПСУЛА · ЛКМ — бросить, растёт и липнет · E — отпустить"
+              : "ЛКМ — бросить · E — отпустить",
       true
     );
     return;
@@ -2720,6 +2987,7 @@ function fixedUpdate() {
   updateBlackHoles(FIXED_DT);
   updatePortals(FIXED_DT);
   state.jolt.Step(FIXED_DT, 1);
+  updateStickyCapsules();
 }
 
 function animate() {
