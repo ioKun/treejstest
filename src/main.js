@@ -22,10 +22,17 @@ const GRAB_CONE = Math.cos(THREE.MathUtils.degToRad(42));
 const HOLD_DISTANCE = 1.05;
 const THROW_SPEED = 12;
 const GROUND_HALF_SIZE = 40;
-const SPAWN_MIN_RADIUS = 5;
-const SPAWN_MAX_RADIUS = 38;
-const SPAWN_CELL = 2;
-const SPAWN_JITTER = 0.2;
+const PILE_CENTER_Z = -16;
+const PILE_BASE_RADIUS = 12;
+const PILE_LAYERS = 7;
+const PILE_LAYER_SHRINK = 1.5;
+const PILE_LAYER_HEIGHT = 0.9;
+const PILE_CELL = 1.16;
+const PILE_JITTER = 0.04;
+const BLAST_RADIUS = 5.5;
+const BLAST_SPEED = 11;
+const BALL_FUSE = 0.6;
+const MAX_SPARKS = 400;
 
 const state = {
   J: null,
@@ -40,6 +47,8 @@ const state = {
   objects: [],
   instances: {},
   highlightMesh: null,
+  fx: null,
+  armed: [],
   held: null,
   highlighted: null,
   grounded: false,
@@ -113,6 +122,9 @@ async function boot() {
   createPlayerBody();
   spawnObjects();
 
+  loaderText.textContent = "Усадка кучи…";
+  settlePile();
+
   setupInput();
   readPlayerState();
   syncMeshes();
@@ -169,6 +181,7 @@ function initGraphics() {
   addLights();
   addGroundVisual();
   addHighlightMesh();
+  initExplosionFx();
   window.addEventListener("resize", onResize);
 }
 
@@ -267,6 +280,334 @@ function addHighlightMesh() {
   mesh.renderOrder = 5;
   scene.add(mesh);
   state.highlightMesh = mesh;
+}
+
+function makeSparkTexture() {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const gradient = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2
+  );
+  gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+  gradient.addColorStop(0.35, "rgba(255, 220, 150, 0.9)");
+  gradient.addColorStop(1, "rgba(255, 120, 20, 0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function initExplosionFx() {
+  const shells = [];
+  const rings = [];
+  const lights = [];
+  const shellGeometry = new THREE.SphereGeometry(1, 18, 12);
+  const ringGeometry = new THREE.RingGeometry(0.78, 1, 40);
+  ringGeometry.rotateX(-Math.PI / 2);
+
+  for (let i = 0; i < 5; i++) {
+    const shellMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffb347,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.FrontSide,
+    });
+    const shellMesh = new THREE.Mesh(shellGeometry, shellMaterial);
+    shellMesh.visible = false;
+    shellMesh.frustumCulled = false;
+    shellMesh.renderOrder = 5;
+    scene.add(shellMesh);
+    shells.push({
+      mesh: shellMesh,
+      material: shellMaterial,
+      age: 0,
+      duration: 0.4,
+      maxScale: 1,
+      startOpacity: 0.5,
+      startScale: 0.2,
+      active: false,
+    });
+
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffd27a,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+    ringMesh.visible = false;
+    ringMesh.frustumCulled = false;
+    ringMesh.renderOrder = 4;
+    scene.add(ringMesh);
+    rings.push({
+      mesh: ringMesh,
+      material: ringMaterial,
+      age: 0,
+      duration: 0.5,
+      maxScale: 1,
+      startOpacity: 0.55,
+      active: false,
+    });
+  }
+
+  for (let i = 0; i < 2; i++) {
+    const light = new THREE.PointLight(0xff9a3c, 0, 14, 2);
+    scene.add(light);
+    lights.push({
+      light,
+      age: 0,
+      duration: 0.38,
+      startIntensity: 0,
+      active: false,
+    });
+  }
+
+  const positions = new Float32Array(MAX_SPARKS * 3);
+  const colors = new Float32Array(MAX_SPARKS * 3);
+
+  for (let i = 0; i < MAX_SPARKS; i++) positions[i * 3 + 1] = -999;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+  const material = new THREE.PointsMaterial({
+    size: 0.17,
+    map: makeSparkTexture(),
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.95,
+    alphaTest: 0.01,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true,
+  });
+
+  const points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+  points.renderOrder = 6;
+  scene.add(points);
+
+  state.fx = {
+    shells,
+    rings,
+    lights,
+    sparks: {
+      points,
+      geometry,
+      material,
+      positions,
+      colors,
+      velocities: new Float32Array(MAX_SPARKS * 3),
+      life: new Float32Array(MAX_SPARKS),
+      maxLife: new Float32Array(MAX_SPARKS),
+      cursor: 0,
+    },
+  };
+}
+
+function spawnExplosion(x, y, z) {
+  const fx = state.fx;
+  if (!fx) return;
+
+  const availableShells = fx.shells.filter((effect) => !effect.active);
+  const inner = availableShells[0] || fx.shells[0];
+  inner.active = true;
+  inner.age = 0;
+  inner.duration = 0.26;
+  inner.maxScale = BLAST_RADIUS * 0.45;
+  inner.startOpacity = 0.85;
+  inner.material.color.setHex(0xffe0a0);
+  inner.mesh.position.set(x, y, z);
+  inner.startScale = 0.18;
+  inner.mesh.scale.setScalar(inner.startScale);
+  inner.mesh.visible = true;
+  inner.material.opacity = inner.startOpacity;
+
+  const outer = availableShells[1] || fx.shells[1];
+  outer.active = true;
+  outer.age = 0;
+  outer.duration = 0.5;
+  outer.maxScale = BLAST_RADIUS * 0.55;
+  outer.startOpacity = 0.3;
+  outer.material.color.setHex(0xff6a1a);
+  outer.mesh.position.set(x, y, z);
+  outer.startScale = 0.3;
+  outer.mesh.scale.setScalar(outer.startScale);
+  outer.mesh.visible = true;
+  outer.material.opacity = outer.startOpacity;
+
+  const ring = fx.rings.find((effect) => !effect.active) || fx.rings[0];
+  ring.active = true;
+  ring.age = 0;
+  ring.duration = 0.55;
+  ring.maxScale = BLAST_RADIUS * 1.05;
+  ring.startOpacity = 0.55;
+  ring.mesh.position.set(x, 0.04, z);
+  ring.mesh.scale.setScalar(0.45);
+  ring.mesh.visible = true;
+  ring.material.opacity = ring.startOpacity;
+
+  const light = fx.lights.find((effect) => !effect.active) || fx.lights[0];
+  light.active = true;
+  light.age = 0;
+  light.duration = 0.38;
+  light.startIntensity = 120;
+  light.light.position.set(x, y + 0.4, z);
+  light.light.intensity = light.startIntensity;
+
+  const sparks = fx.sparks;
+  for (let i = 0; i < 80; i++) {
+    const slot = sparks.cursor++ % MAX_SPARKS;
+    const theta = Math.random() * Math.PI * 2;
+    const up = Math.random() * 0.9 + 0.1;
+    const speed = 4 + Math.random() * 12;
+    const horizontal = Math.sqrt(1 - up * up);
+
+    sparks.positions[slot * 3] = x;
+    sparks.positions[slot * 3 + 1] = y;
+    sparks.positions[slot * 3 + 2] = z;
+    sparks.velocities[slot * 3] = Math.cos(theta) * horizontal * speed;
+    sparks.velocities[slot * 3 + 1] = up * speed;
+    sparks.velocities[slot * 3 + 2] = Math.sin(theta) * horizontal * speed;
+    sparks.life[slot] = 0.5 + Math.random() * 0.5;
+    sparks.maxLife[slot] = sparks.life[slot];
+    sparks.colors[slot * 3] = 1;
+    sparks.colors[slot * 3 + 1] = 0.45 + Math.random() * 0.45;
+    sparks.colors[slot * 3 + 2] = 0.08 + Math.random() * 0.18;
+  }
+
+  sparks.geometry.attributes.position.needsUpdate = true;
+  sparks.geometry.attributes.color.needsUpdate = true;
+}
+
+function updateExplosionFx(dt) {
+  const fx = state.fx;
+  if (!fx) return;
+
+  for (const effect of fx.shells) {
+    if (!effect.active) continue;
+
+    effect.age += dt;
+    const t = Math.min(effect.age / effect.duration, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    effect.mesh.scale.setScalar(THREE.MathUtils.lerp(effect.startScale, effect.maxScale, eased));
+    effect.material.opacity = effect.startOpacity * (1 - t);
+
+    if (t >= 1) {
+      effect.active = false;
+      effect.mesh.visible = false;
+    }
+  }
+
+  for (const effect of fx.rings) {
+    if (!effect.active) continue;
+
+    effect.age += dt;
+    const t = Math.min(effect.age / effect.duration, 1);
+    effect.mesh.scale.setScalar(THREE.MathUtils.lerp(0.45, effect.maxScale, t));
+    effect.material.opacity = effect.startOpacity * (1 - t);
+
+    if (t >= 1) {
+      effect.active = false;
+      effect.mesh.visible = false;
+    }
+  }
+
+  for (const effect of fx.lights) {
+    if (!effect.active) continue;
+
+    effect.age += dt;
+    const t = Math.min(effect.age / effect.duration, 1);
+    effect.light.intensity = effect.startIntensity * (1 - t) * (1 - t);
+
+    if (t >= 1) {
+      effect.active = false;
+      effect.light.intensity = 0;
+    }
+  }
+
+  const sparks = fx.sparks;
+  let sparksChanged = false;
+
+  for (let i = 0; i < MAX_SPARKS; i++) {
+    if (sparks.life[i] <= 0) continue;
+
+    sparks.life[i] -= dt;
+    sparksChanged = true;
+
+    if (sparks.life[i] <= 0) {
+      sparks.positions[i * 3 + 1] = -999;
+      sparks.colors[i * 3] = 0;
+      sparks.colors[i * 3 + 1] = 0;
+      sparks.colors[i * 3 + 2] = 0;
+      continue;
+    }
+
+    sparks.positions[i * 3] += sparks.velocities[i * 3] * dt;
+    sparks.positions[i * 3 + 1] += sparks.velocities[i * 3 + 1] * dt;
+    sparks.positions[i * 3 + 2] += sparks.velocities[i * 3 + 2] * dt;
+    sparks.velocities[i * 3 + 1] -= 9.8 * dt;
+
+    const fade = sparks.life[i] / sparks.maxLife[i];
+    sparks.colors[i * 3] = fade;
+    sparks.colors[i * 3 + 1] = 0.55 * fade;
+    sparks.colors[i * 3 + 2] = 0.12 * fade;
+  }
+
+  if (sparksChanged) {
+    sparks.geometry.attributes.position.needsUpdate = true;
+    sparks.geometry.attributes.color.needsUpdate = true;
+  }
+}
+
+function resetExplosionFx() {
+  const fx = state.fx;
+  if (!fx) return;
+
+  for (const effect of fx.shells) {
+    effect.active = false;
+    effect.mesh.visible = false;
+    effect.material.opacity = 0;
+  }
+
+  for (const effect of fx.rings) {
+    effect.active = false;
+    effect.mesh.visible = false;
+    effect.material.opacity = 0;
+  }
+
+  for (const effect of fx.lights) {
+    effect.active = false;
+    effect.light.intensity = 0;
+  }
+
+  const sparks = fx.sparks;
+  sparks.life.fill(0);
+
+  for (let i = 0; i < MAX_SPARKS; i++) {
+    sparks.positions[i * 3 + 1] = -999;
+    sparks.colors[i * 3] = 0;
+    sparks.colors[i * 3 + 1] = 0;
+    sparks.colors[i * 3 + 2] = 0;
+  }
+
+  sparks.geometry.attributes.position.needsUpdate = true;
+  sparks.geometry.attributes.color.needsUpdate = true;
 }
 
 function makeCheckerTexture() {
@@ -668,19 +1009,20 @@ const TYPE_CONFIG = {
   },
 };
 
-function buildSpawnCells() {
+function buildPileCells() {
   const cells = [];
-  const pad = SPAWN_CELL;
-  const min = -SPAWN_MAX_RADIUS - pad;
-  const max = SPAWN_MAX_RADIUS + pad;
 
-  for (let x = min; x <= max; x += SPAWN_CELL) {
-    for (let z = min; z <= max; z += SPAWN_CELL) {
-      const cx = x + SPAWN_CELL / 2 + (Math.random() - 0.5) * SPAWN_JITTER * 2;
-      const cz = z + SPAWN_CELL / 2 + (Math.random() - 0.5) * SPAWN_JITTER * 2;
-      const distance = Math.hypot(cx, cz);
-      if (distance < SPAWN_MIN_RADIUS || distance > SPAWN_MAX_RADIUS) continue;
-      cells.push({ x: cx, z: cz });
+  for (let layer = 0; layer < PILE_LAYERS; layer++) {
+    const radius = PILE_BASE_RADIUS - layer * PILE_LAYER_SHRINK;
+    const layerY = layer * PILE_LAYER_HEIGHT;
+
+    for (let x = -radius; x <= radius; x += PILE_CELL) {
+      for (let z = -radius; z <= radius; z += PILE_CELL) {
+        const cx = x + PILE_CELL / 2 + (Math.random() - 0.5) * PILE_JITTER * 2;
+        const cz = z + PILE_CELL / 2 + (Math.random() - 0.5) * PILE_JITTER * 2;
+        if (cx * cx + cz * cz > radius * radius) continue;
+        cells.push({ x: cx, z: PILE_CENTER_Z + cz, y: layerY });
+      }
     }
   }
 
@@ -695,7 +1037,7 @@ function buildSpawnCells() {
 }
 
 function spawnObjects() {
-  const cells = buildSpawnCells();
+  const cells = buildPileCells();
   let cellCursor = 0;
 
   for (const [type, config] of Object.entries(TYPE_CONFIG)) {
@@ -717,12 +1059,15 @@ function spawnObjects() {
 
       if (!cell) {
         const angle = Math.random() * Math.PI * 2;
-        const distance =
-          SPAWN_MIN_RADIUS + Math.sqrt(Math.random()) * (SPAWN_MAX_RADIUS - SPAWN_MIN_RADIUS);
-        cell = { x: Math.cos(angle) * distance, z: Math.sin(angle) * distance };
+        const distance = Math.sqrt(Math.random()) * PILE_BASE_RADIUS;
+        cell = {
+          x: Math.cos(angle) * distance,
+          z: PILE_CENTER_Z + Math.sin(angle) * distance,
+          y: Math.floor(Math.random() * PILE_LAYERS) * PILE_LAYER_HEIGHT,
+        };
       }
 
-      createObject(type, i, mesh, config.palette, cell.x, cell.z);
+      createObject(type, i, mesh, config.palette, cell.x, cell.z, cell.y);
     }
 
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -730,7 +1075,47 @@ function spawnObjects() {
   }
 }
 
-function createObject(type, index, mesh, palette, spawnX, spawnZ) {
+function isPileCalm() {
+  let active = 0;
+
+  for (const object of state.objects) {
+    if (!object.body.IsActive()) continue;
+
+    const v = state.bodyInterface.GetLinearVelocity(object.id);
+    if (Math.hypot(v.GetX(), v.GetY(), v.GetZ()) > 0.4) return false;
+    active++;
+  }
+
+  return active < 30;
+}
+
+function settlePile() {
+  const maxSteps = 240;
+
+  for (let i = 0; i < maxSteps; i++) {
+    state.jolt.Step(FIXED_DT, 1);
+    if ((i + 1) % 60 === 0 && isPileCalm()) break;
+  }
+
+  for (const object of state.objects) {
+    const p = object.body.GetPosition();
+    const q = object.body.GetRotation();
+    object.spawnPosition.set(p.GetX(), p.GetY(), p.GetZ());
+    object.spawnRotation.set(q.GetX(), q.GetY(), q.GetZ(), q.GetW());
+    object.position.copy(object.spawnPosition);
+    object.quaternion.copy(object.spawnRotation);
+    state.bodyInterface.SetLinearAndAngularVelocity(
+      object.id,
+      zeroVec3(),
+      zeroVec3()
+    );
+    state.bodyInterface.DeactivateBody(object.id);
+  }
+
+  readPlayerState();
+}
+
+function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY) {
   const J = state.J;
   const yaw = Math.random() * Math.PI * 2;
 
@@ -745,7 +1130,7 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ) {
   let angularDamping = 0.15;
 
   if (type === "box") {
-    const size = 0.4 + Math.random() * 0.55;
+    const size = 0.35 + Math.random() * 0.45;
     const half = size / 2;
     shape = new J.BoxShape(new J.Vec3(half, half, half), 0.02);
     scale = new THREE.Vector3(size, size, size);
@@ -753,23 +1138,23 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ) {
     radius = half;
     restHeight = half;
   } else if (type === "sphere") {
-    const r = 0.16 + Math.random() * 0.3;
+    const r = 0.14 + Math.random() * 0.22;
     shape = new J.SphereShape(r);
     scale = new THREE.Vector3(r, r, r);
     bounds = new THREE.Vector3(r * 2, r * 2, r * 2);
     radius = r;
     restHeight = r;
   } else if (type === "capsule") {
-    const r = 0.13 + Math.random() * 0.13;
-    const half = 0.2 + Math.random() * 0.3;
+    const r = 0.11 + Math.random() * 0.11;
+    const half = 0.18 + Math.random() * 0.14;
     shape = new J.CapsuleShape(half, r);
     scale = new THREE.Vector3(r * 2, half + r, r * 2);
     bounds = new THREE.Vector3(r * 2, (half + r) * 2, r * 2);
     radius = half + r;
     restHeight = r;
   } else if (type === "gear") {
-    const gearRadius = 0.24 + Math.random() * 0.32;
-    const thickness = 0.08 + Math.random() * 0.14;
+    const gearRadius = 0.2 + Math.random() * 0.26;
+    const thickness = 0.07 + Math.random() * 0.09;
     shape = new J.CylinderShape(thickness / 2, gearRadius, 0.02);
     scale = new THREE.Vector3(gearRadius, thickness, gearRadius);
     bounds = new THREE.Vector3(gearRadius * 2, thickness, gearRadius * 2);
@@ -779,7 +1164,7 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ) {
     restitution = 0.05;
     angularDamping = 0.25;
   } else if (type === "wire") {
-    const length = 0.7 + Math.random() * 0.9;
+    const length = 0.55 + Math.random() * 0.45;
     shape = new J.CapsuleShape(length / 2, 0.05);
     scale = new THREE.Vector3(1, length, 1);
     bounds = new THREE.Vector3(0.32, length, 0.32);
@@ -789,8 +1174,8 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ) {
     friction = 0.5;
     restitution = 0.08;
   } else if (type === "pipe") {
-    const pipeRadius = 0.16 + Math.random() * 0.18;
-    const length = 0.7 + Math.random() * 0.8;
+    const pipeRadius = 0.14 + Math.random() * 0.12;
+    const length = 0.55 + Math.random() * 0.45;
     shape = new J.CylinderShape(length / 2, pipeRadius, 0.02);
     scale = new THREE.Vector3(pipeRadius, length, pipeRadius);
     bounds = new THREE.Vector3(pipeRadius * 2, length, pipeRadius * 2);
@@ -801,8 +1186,8 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ) {
     restitution = 0.05;
     angularDamping = 0.22;
   } else {
-    const size = 0.65 + Math.random() * 0.5;
-    const depth = 0.07 + Math.random() * 0.08;
+    const size = 0.55 + Math.random() * 0.35;
+    const depth = 0.06 + Math.random() * 0.07;
     shape = new J.BoxShape(new J.Vec3(size / 2, size / 2, depth / 2), 0.015);
     scale = new THREE.Vector3(size, size, depth);
     bounds = new THREE.Vector3(size, size, depth);
@@ -827,7 +1212,7 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ) {
     spawnRotation = new THREE.Quaternion().setFromAxisAngle(AXIS_Y, yaw);
   }
 
-  const spawnY = restHeight + 0.02 + Math.random() * 0.08;
+  const spawnY = spawnBaseY + restHeight + 0.02 + Math.random() * 0.04;
   const spawnPosition = new THREE.Vector3(spawnX, spawnY, spawnZ);
 
   const position = new J.RVec3(spawnX, spawnY, spawnZ);
@@ -873,6 +1258,8 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ) {
     instanceIndex: index,
     spawnPosition,
     spawnRotation,
+    exploded: false,
+    fuse: 0,
   };
 
   state.objects.push(object);
@@ -1032,7 +1419,7 @@ function findGrabTarget() {
   let bestScore = Infinity;
 
   for (const object of state.objects) {
-    if (object === state.held) continue;
+    if (object === state.held || object.exploded) continue;
 
     const dx = object.position.x - originX;
     const dy = object.position.y - originY;
@@ -1101,7 +1488,120 @@ function throwHeld() {
   state.bodyInterface.SetAngularVelocity(object.id, spin);
   state.bodyInterface.ActivateBody(object.id);
 
+  if (object.type === "sphere") armBall(object);
+
   state.held = null;
+}
+
+function armBall(object) {
+  if (object.exploded) return;
+  object.fuse = BALL_FUSE;
+  if (!state.armed.includes(object)) state.armed.push(object);
+}
+
+function updateArmed(dt) {
+  for (let i = state.armed.length - 1; i >= 0; i--) {
+    const object = state.armed[i];
+    object.fuse -= dt;
+
+    if (object.fuse > 0) continue;
+
+    state.armed.splice(i, 1);
+    explodeBall(object);
+  }
+}
+
+function explodeBall(object) {
+  const p = object.body.GetPosition();
+  const x = p.GetX();
+  const y = Math.max(0.25, p.GetY());
+  const z = p.GetZ();
+
+  object.position.set(x, y, z);
+  state.bodyInterface.RemoveBody(object.id);
+  object.exploded = true;
+  object.fuse = 0;
+
+  tmpMatrix.makeScale(0, 0, 0);
+  object.instanceMesh.setMatrixAt(object.instanceIndex, tmpMatrix);
+  object.instanceMesh.instanceMatrix.needsUpdate = true;
+
+  applyBlast(x, y, z);
+  spawnExplosion(x, y, z);
+}
+
+function applyBlast(x, y, z) {
+  const radiusSq = BLAST_RADIUS * BLAST_RADIUS;
+  const impulse = state.tmpVec3;
+
+  for (const object of state.objects) {
+    if (object.exploded || object === state.held) continue;
+
+    const dx = object.position.x - x;
+    const dy = object.position.y - y;
+    const dz = object.position.z - z;
+    const distanceSq = dx * dx + dy * dy + dz * dz;
+    if (distanceSq > radiusSq) continue;
+
+    const inverseMass = object.body.GetMotionProperties().GetInverseMass();
+    if (inverseMass <= 0) continue;
+
+    const distance = Math.sqrt(distanceSq);
+    const falloff = 1 - distance / BLAST_RADIUS;
+    const mass = 1 / inverseMass;
+    const speed = BLAST_SPEED * (0.35 + 0.65 * falloff);
+
+    let nx = dx;
+    let ny = dy + 0.6;
+    let nz = dz;
+
+    if (distance < 0.001) {
+      const angle = Math.random() * Math.PI * 2;
+      nx = Math.cos(angle);
+      ny = 1;
+      nz = Math.sin(angle);
+    }
+
+    const length = Math.hypot(nx, ny, nz) || 1;
+    const scale = (speed * mass) / length;
+
+    impulse.Set(nx * scale, ny * scale, nz * scale);
+    state.bodyInterface.AddImpulse(object.id, impulse);
+
+    const spin = state.tmpVec3b;
+    const spinScale = mass * speed * 0.12;
+    spin.Set(
+      (Math.random() - 0.5) * spinScale,
+      (Math.random() - 0.5) * spinScale,
+      (Math.random() - 0.5) * spinScale
+    );
+    state.bodyInterface.AddAngularImpulse(object.id, spin);
+    state.bodyInterface.ActivateBody(object.id);
+  }
+
+  const pdx = playerPos.x - x;
+  const pdy = playerPos.y - y;
+  const pdz = playerPos.z - z;
+  const playerDistanceSq = pdx * pdx + pdy * pdy + pdz * pdz;
+  if (playerDistanceSq >= radiusSq) return;
+
+  const inverseMass = state.playerBody.GetMotionProperties().GetInverseMass();
+  if (inverseMass <= 0) return;
+
+  const distance = Math.sqrt(playerDistanceSq);
+  const falloff = 1 - distance / BLAST_RADIUS;
+  const mass = 1 / inverseMass;
+  const speed = BLAST_SPEED * 0.55 * (0.4 + 0.6 * falloff);
+
+  let nx = pdx;
+  let ny = pdy + 0.9;
+  let nz = pdz;
+  const length = Math.hypot(nx, ny, nz) || 1;
+  const scale = (speed * mass) / length;
+
+  impulse.Set(nx * scale, ny * scale, nz * scale);
+  state.bodyInterface.AddImpulse(state.playerId, impulse);
+  state.bodyInterface.ActivateBody(state.playerId);
 }
 
 function setBodyVelocity(id, x, y, z) {
@@ -1239,7 +1739,15 @@ function resetWorld() {
     state.held = null;
   }
 
+  state.armed.length = 0;
+  resetExplosionFx();
+
   for (const object of state.objects) {
+    if (object.exploded) {
+      state.bodyInterface.AddBody(object.id, J.EActivation_Activate);
+      object.exploded = false;
+    }
+
     state.tmpRVec3.Set(
       object.spawnPosition.x,
       object.spawnPosition.y,
@@ -1263,6 +1771,7 @@ function resetWorld() {
       zeroVec3()
     );
     state.bodyInterface.SetGravityFactor(object.id, 1);
+    object.fuse = 0;
   }
 
   respawnPlayer();
@@ -1285,7 +1794,12 @@ function updateCamera(dt) {
 function updateHighlight() {
   if (state.held) {
     setHighlighted(null);
-    setHint("ЛКМ — бросить · E — отпустить", true);
+    setHint(
+      state.held.type === "sphere"
+        ? "ШАР · ЛКМ — бросить со взрывом · E — отпустить"
+        : "ЛКМ — бросить · E — отпустить",
+      true
+    );
     return;
   }
 
@@ -1328,6 +1842,8 @@ function setHighlighted(object) {
 
 function syncMeshes() {
   for (const object of state.objects) {
+    if (object.exploded) continue;
+
     const p = object.body.GetPosition();
     const q = object.body.GetRotation();
     object.position.set(p.GetX(), p.GetY(), p.GetZ());
@@ -1414,6 +1930,7 @@ function restartClock() {
 function fixedUpdate() {
   updatePlayer(FIXED_DT);
   updateHeld(FIXED_DT);
+  updateArmed(FIXED_DT);
   state.jolt.Step(FIXED_DT, 1);
 }
 
@@ -1438,6 +1955,7 @@ function animate() {
   readPlayerState();
   syncMeshes();
   animateLimbs(Math.min(dt, 0.05));
+  updateExplosionFx(Math.min(dt, 0.05));
   updateCamera(dt);
   updateHighlight();
   const afterUpdate = performance.now();
