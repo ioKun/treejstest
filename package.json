@@ -1,0 +1,23 @@
+{
+  "name": "stickman-jolt-mt",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Палочный человечек — Three.js + Jolt Physics (multithreaded)",
+  "scripts": {
+    "postinstall": "node scripts/sync-jolt.mjs",
+    "predev": "node scripts/sync-jolt.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/sync-jolt.mjs",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "coi-serviceworker": "^0.1.7",
+    "jolt-physics": "^1.1.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^6.4.5"
+  }
+}

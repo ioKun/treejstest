@@ -1,0 +1,5 @@
+node_modules/
+dist/
+public/jolt-physics.multithread.wasm-compat.js
+public/coi-serviceworker.min.js
+*.log
