@@ -39,6 +39,14 @@ const BLACKHOLE_PULL = 16;
 const BLACKHOLE_SWIRL = 3.5;
 const BLACKHOLE_ABSORB_RADIUS = 0.65;
 const BLACKHOLE_ABSORB_RATE = 5;
+const PORTAL_RADIUS = 3.2;
+const PORTAL_DURATION = 7.5;
+const PORTAL_PULL = 22;
+const PORTAL_SWIRL = 5.5;
+const PORTAL_DOWN_PULL = 14;
+const PORTAL_REMOVE_RADIUS = 0.9;
+const PORTAL_ABSORB_RATE = 12;
+const PORTAL_CAPTURE_HEIGHT = 3.2;
 
 const state = {
   J: null,
@@ -55,6 +63,7 @@ const state = {
   highlightMesh: null,
   fx: null,
   blackHoles: [],
+  portals: [],
   armed: [],
   held: null,
   highlighted: null,
@@ -98,6 +107,7 @@ const tmpMatrix = new THREE.Matrix4();
 const tmpColor = new THREE.Color();
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const PORTAL_BASE_COLOR = new THREE.Color(0x59c3ff);
 
 let renderer;
 let scene;
@@ -199,6 +209,7 @@ function initGraphics() {
   addHighlightMesh();
   initExplosionFx();
   initBlackHoleFx();
+  initPortalFx();
   window.addEventListener("resize", onResize);
 }
 
@@ -893,6 +904,218 @@ function resetBlackHoleFx() {
   for (const hole of state.blackHoles) {
     hole.active = false;
     hole.group.visible = false;
+  }
+}
+
+function initPortalFx() {
+  const discGeometry = new THREE.PlaneGeometry(2, 2);
+  discGeometry.rotateX(-Math.PI / 2);
+
+  const arcGeometry = new THREE.RingGeometry(
+    0.52,
+    0.94,
+    64,
+    1,
+    0,
+    Math.PI * 1.28
+  );
+  arcGeometry.rotateX(-Math.PI / 2);
+
+  const ringGeometry = new THREE.TorusGeometry(1, 0.026, 10, 96);
+  ringGeometry.rotateX(Math.PI / 2);
+
+  const vertexShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `;
+
+  const fragmentShader = `
+    uniform float uTime;
+    uniform float uAlpha;
+    uniform vec3 uTint;
+    varying vec2 vUv;
+
+    void main() {
+      vec2 p = vUv * 2.0 - 1.0;
+      float r = length(p);
+      if (r > 1.0) discard;
+
+      float angle = atan(p.y, p.x);
+      float spiral = sin(angle * 5.0 - r * 20.0 + uTime * 3.4);
+      float spiral2 = sin(angle * 3.0 + r * 13.0 - uTime * 2.2);
+      float rim = smoothstep(0.7, 0.9, r) * (1.0 - smoothstep(0.94, 1.0, r));
+      float haze = smoothstep(0.15, 0.98, r);
+
+      vec3 deep = vec3(0.003, 0.006, 0.018);
+      vec3 tint = uTint * 1.35;
+      vec3 color = mix(deep, tint * 0.22, 0.16 + 0.1 * spiral2);
+      color += tint * (0.5 + 0.5 * spiral) * haze * 0.16;
+      color = mix(color, tint, rim * (0.65 + 0.35 * spiral));
+
+      float alpha = uAlpha * (0.93 + 0.07 * rim);
+      gl_FragColor = vec4(color, alpha);
+    }
+  `;
+
+  const portals = [];
+
+  for (let i = 0; i < 4; i++) {
+    const group = new THREE.Group();
+    group.visible = false;
+
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uAlpha: { value: 0 },
+        uTint: { value: new THREE.Color(0x59c3ff) },
+      },
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const disc = new THREE.Mesh(discGeometry, material);
+    disc.position.y = 0.012;
+    disc.frustumCulled = false;
+    disc.renderOrder = 2;
+    group.add(disc);
+
+    const arcMaterial = new THREE.MeshBasicMaterial({
+      color: 0x59c3ff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const arc = new THREE.Mesh(arcGeometry, arcMaterial);
+    arc.position.y = 0.022;
+    arc.frustumCulled = false;
+    arc.renderOrder = 3;
+    group.add(arc);
+
+    const arc2Material = arcMaterial.clone();
+    const arc2 = new THREE.Mesh(arcGeometry, arc2Material);
+    arc2.position.y = 0.024;
+    arc2.scale.setScalar(0.78);
+    arc2.frustumCulled = false;
+    arc2.renderOrder = 3;
+    group.add(arc2);
+
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0x9fe9ff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    ring.position.y = 0.03;
+    ring.frustumCulled = false;
+    ring.renderOrder = 4;
+    group.add(ring);
+
+    const light = new THREE.PointLight(0x59c3ff, 0, 9, 2);
+    light.position.y = 0.55;
+    group.add(light);
+
+    scene.add(group);
+    portals.push({
+      active: false,
+      group,
+      material,
+      arc,
+      arcMaterial,
+      arc2,
+      arc2Material,
+      ring,
+      ringMaterial,
+      light,
+      tint: new THREE.Color(),
+      position: new THREE.Vector3(),
+      age: 0,
+      absorbBudget: 0,
+      duration: PORTAL_DURATION,
+      radius: PORTAL_RADIUS,
+    });
+  }
+
+  state.portals = portals;
+}
+
+function spawnPortal(x, z, tint) {
+  const portals = state.portals;
+  if (!portals.length) return;
+
+  let portal = portals.find((entry) => !entry.active);
+
+  if (!portal) {
+    portal = portals.reduce(
+      (oldest, entry) => (entry.age > oldest.age ? entry : oldest),
+      portals[0]
+    );
+  }
+
+  portal.active = true;
+  portal.age = 0;
+  portal.absorbBudget = 0.35;
+  portal.position.set(x, 0.03, z);
+  portal.group.position.copy(portal.position);
+  portal.group.visible = true;
+  portal.group.scale.setScalar(portal.radius * 0.12);
+  portal.tint.copy(tint).lerp(PORTAL_BASE_COLOR, 0.3);
+  portal.material.uniforms.uTime.value = 0;
+  portal.material.uniforms.uAlpha.value = 0;
+  portal.material.uniforms.uTint.value.copy(portal.tint);
+  portal.arcMaterial.color.copy(portal.tint);
+  portal.arc2Material.color.copy(portal.tint).lerp(PORTAL_BASE_COLOR, 0.35);
+  portal.ringMaterial.color.copy(portal.tint).lerp(PORTAL_BASE_COLOR, 0.5);
+  portal.arcMaterial.opacity = 0;
+  portal.arc2Material.opacity = 0;
+  portal.ringMaterial.opacity = 0;
+  portal.light.color.copy(portal.tint);
+  portal.light.intensity = 0;
+  portal.arc.rotation.y = 0;
+  portal.arc2.rotation.y = Math.PI;
+}
+
+function deactivatePortal(portal) {
+  portal.active = false;
+  portal.group.visible = false;
+}
+
+function updatePortalFx(dt) {
+  for (const portal of state.portals) {
+    if (!portal.active) continue;
+
+    const fadeIn = Math.min(portal.age / 0.5, 1);
+    const fadeOut = Math.min((portal.duration - portal.age) / 0.65, 1);
+    const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
+    const open = 1 - Math.pow(1 - Math.min(portal.age / 0.6, 1), 3);
+    const pulse = 1 + Math.sin(portal.age * 4.5) * 0.035;
+    const scale = portal.radius * (0.12 + 0.88 * open) * pulse;
+
+    portal.group.scale.setScalar(scale);
+    portal.material.uniforms.uTime.value = portal.age;
+    portal.material.uniforms.uAlpha.value = alpha;
+    portal.arcMaterial.opacity = 0.62 * alpha;
+    portal.arc2Material.opacity = 0.42 * alpha;
+    portal.ringMaterial.opacity = 0.85 * alpha;
+    portal.light.intensity =
+      18 * alpha * (0.9 + 0.1 * Math.sin(portal.age * 7));
+    portal.arc.rotation.y += dt * 2.4;
+    portal.arc2.rotation.y -= dt * 1.7;
+  }
+}
+
+function resetPortalFx() {
+  for (const portal of state.portals) {
+    portal.active = false;
+    portal.group.visible = false;
   }
 }
 
@@ -1836,14 +2059,26 @@ function throwHeld() {
   state.bodyInterface.SetAngularVelocity(object.id, spin);
   state.bodyInterface.ActivateBody(object.id);
 
-  if (object.type === "sphere" || object.type === "box") armObject(object);
+  if (
+    object.type === "sphere" ||
+    object.type === "box" ||
+    object.type === "frame"
+  ) {
+    armObject(object);
+  }
 
   state.held = null;
 }
 
 function armObject(object) {
   if (object.exploded || object.absorbed) return;
-  if (object.type !== "sphere" && object.type !== "box") return;
+  if (
+    object.type !== "sphere" &&
+    object.type !== "box" &&
+    object.type !== "frame"
+  ) {
+    return;
+  }
   object.fuse = SPECIAL_FUSE;
   if (!state.armed.includes(object)) state.armed.push(object);
 }
@@ -1863,6 +2098,7 @@ function updateArmed(dt) {
 
     state.armed.splice(i, 1);
     if (object.type === "box") createBlackHole(object);
+    else if (object.type === "frame") openPortalFromFrame(object);
     else explodeBall(object);
   }
 }
@@ -1886,6 +2122,22 @@ function createBlackHole(object) {
   state.removed += 1;
   hideObjectInstance(object);
   spawnBlackHole(x, y, z);
+}
+
+function openPortalFromFrame(object) {
+  const p = object.body.GetPosition();
+  const limit = GROUND_HALF_SIZE - PORTAL_RADIUS - 0.5;
+  const x = THREE.MathUtils.clamp(p.GetX(), -limit, limit);
+  const z = THREE.MathUtils.clamp(p.GetZ(), -limit, limit);
+
+  object.instanceMesh.getColorAt(object.instanceIndex, tmpColor);
+  object.position.set(x, 0, z);
+  state.bodyInterface.RemoveBody(object.id);
+  object.exploded = true;
+  object.fuse = 0;
+  state.removed += 1;
+  hideObjectInstance(object);
+  spawnPortal(x, z, tmpColor);
 }
 
 function explodeBall(object) {
@@ -1983,6 +2235,80 @@ function updateBlackHoles(dt) {
       const mass = 1 / inverseMass;
       const blend = 0.2;
       const velocity = state.bodyInterface.GetLinearVelocity(object.id);
+
+      state.tmpVec3.Set(
+        (targetX - velocity.GetX()) * mass * blend,
+        (targetY - velocity.GetY()) * mass * blend,
+        (targetZ - velocity.GetZ()) * mass * blend
+      );
+      state.bodyInterface.AddImpulse(object.id, state.tmpVec3);
+      state.bodyInterface.ActivateBody(object.id);
+    }
+  }
+}
+
+function updatePortals(dt) {
+  for (const portal of state.portals) {
+    if (!portal.active) continue;
+
+    portal.age += dt;
+    if (portal.age >= portal.duration) {
+      deactivatePortal(portal);
+      continue;
+    }
+
+    const fade =
+      Math.min(portal.age / 0.5, 1) *
+      Math.min((portal.duration - portal.age) / 0.7, 1);
+    if (fade <= 0) continue;
+
+    const radiusSq = portal.radius * portal.radius;
+    const removeRadiusSq = PORTAL_REMOVE_RADIUS * PORTAL_REMOVE_RADIUS;
+    portal.absorbBudget = Math.min(
+      1,
+      portal.absorbBudget + dt * PORTAL_ABSORB_RATE
+    );
+
+    for (const object of state.objects) {
+      if (object.exploded || object.absorbed || object === state.held) continue;
+
+      const p = object.body.GetPosition();
+      const x = p.GetX();
+      const y = p.GetY();
+      const z = p.GetZ();
+      if (y < -1 || y > PORTAL_CAPTURE_HEIGHT) continue;
+
+      const dx = portal.position.x - x;
+      const dz = portal.position.z - z;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq > radiusSq) continue;
+
+      if (distanceSq < removeRadiusSq && y < 1.1) {
+        if (portal.absorbBudget >= 1) {
+          absorbObject(object);
+          portal.absorbBudget -= 1;
+        }
+        continue;
+      }
+
+      const inverseMass = object.body.GetMotionProperties().GetInverseMass();
+      if (inverseMass <= 0) continue;
+
+      const distance = Math.sqrt(distanceSq);
+      const falloff = 1 - distance / portal.radius;
+      const nx = distanceSq > 0.000001 ? dx / distance : 0;
+      const nz = distanceSq > 0.000001 ? dz / distance : 0;
+      const tx = -nz;
+      const tz = nx;
+      const pull = PORTAL_PULL * falloff * fade;
+      const swirl = PORTAL_SWIRL * falloff * fade;
+      const targetX = nx * pull + tx * swirl;
+      const targetZ = nz * pull + tz * swirl;
+      const targetY = -PORTAL_DOWN_PULL * (0.35 + 0.65 * falloff) * fade;
+
+      const velocity = state.bodyInterface.GetLinearVelocity(object.id);
+      const mass = 1 / inverseMass;
+      const blend = 1 - Math.exp(-6.5 * dt);
 
       state.tmpVec3.Set(
         (targetX - velocity.GetX()) * mass * blend,
@@ -2208,6 +2534,7 @@ function resetWorld() {
   state.removed = 0;
   resetExplosionFx();
   resetBlackHoleFx();
+  resetPortalFx();
 
   for (const object of state.objects) {
     if (object.exploded || object.absorbed) {
@@ -2267,7 +2594,9 @@ function updateHighlight() {
         ? "ШАР · ЛКМ — бросить со взрывом · E — отпустить"
         : state.held.type === "box"
           ? "КУБ · ЛКМ — бросить, создаёт чёрную дыру · E — отпустить"
-          : "ЛКМ — бросить · E — отпустить",
+          : state.held.type === "frame"
+            ? "РАМА · ЛКМ — бросить, создаёт портал · E — отпустить"
+            : "ЛКМ — бросить · E — отпустить",
       true
     );
     return;
@@ -2412,6 +2741,7 @@ function fixedUpdate() {
   updateHeld(FIXED_DT);
   updateArmed(FIXED_DT);
   updateBlackHoles(FIXED_DT);
+  updatePortals(FIXED_DT);
   state.jolt.Step(FIXED_DT, 1);
 }
 
@@ -2438,6 +2768,7 @@ function animate() {
   animateLimbs(Math.min(dt, 0.05));
   updateExplosionFx(Math.min(dt, 0.05));
   updateBlackHoleFx(Math.min(dt, 0.05));
+  updatePortalFx(Math.min(dt, 0.05));
   updateCamera(dt);
   updateHighlight();
 
