@@ -61,9 +61,13 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 16px;
-  max-width: 640px;
+  max-width: 700px;
+  padding: 7px 10px;
+  border: 1px solid rgba(190, 220, 240, 0.12);
+  border-radius: 10px;
+  background: rgba(12, 22, 30, 0.5);
   font-size: 12px;
-  color: rgba(210, 226, 245, 0.72);
+  color: rgba(226, 238, 248, 0.82);
 }
 
 .controls span {
@@ -88,9 +92,86 @@ kbd {
 }
 
 #stats {
+  align-self: flex-start;
+  padding: 4px 9px;
+  border: 1px solid rgba(190, 220, 240, 0.12);
+  border-radius: 999px;
+  background: rgba(12, 22, 30, 0.72);
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: rgba(150, 180, 210, 0.6);
+  color: rgba(220, 236, 246, 0.82);
+}
+
+#removed-counter {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  min-width: 116px;
+  padding: 10px 14px 11px;
+  border: 1px solid rgba(190, 220, 240, 0.2);
+  border-radius: 14px;
+  background: rgba(12, 22, 30, 0.78);
+  box-shadow: 0 8px 26px rgba(10, 22, 30, 0.18);
+  text-align: right;
+  pointer-events: none;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.counter-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: rgba(200, 222, 238, 0.68);
+}
+
+.counter-value {
+  margin-top: 3px;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #ffd892;
+}
+
+.counter-separator {
+  margin: 0 3px;
+  font-size: 16px;
+  font-weight: 400;
+  color: rgba(200, 222, 238, 0.42);
+}
+
+#removed-total {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(210, 228, 240, 0.62);
+}
+
+@media (max-width: 900px) {
+  .controls {
+    max-width: calc(100vw - 180px);
+  }
+}
+
+@media (max-width: 720px) {
+  .title {
+    font-size: 14px;
+    letter-spacing: 0.12em;
+  }
+
+  .controls {
+    max-width: calc(100vw - 40px);
+  }
+
+  #removed-counter {
+    top: 14px;
+    right: 14px;
+    min-width: 98px;
+    padding: 8px 11px 9px;
+  }
+
+  .counter-value {
+    font-size: 22px;
+  }
 }
 
 #hint {
@@ -101,8 +182,7 @@ kbd {
   padding: 9px 18px;
   border: 1px solid rgba(120, 190, 235, 0.16);
   border-radius: 999px;
-  background: rgba(9, 15, 24, 0.6);
-  backdrop-filter: blur(6px);
+  background: rgba(9, 15, 24, 0.78);
   font-size: 12px;
   color: rgba(205, 225, 245, 0.76);
   pointer-events: none;
