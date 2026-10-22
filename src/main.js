@@ -87,6 +87,8 @@ const state = {
   pitch: 0.18,
   distance: 5.2,
   keys: new Set(),
+  touchMove: { x: 0, y: 0 },
+  touchRun: false,
   walkPhase: 0,
   facing: 0,
   hintEl: null,
@@ -2224,6 +2226,97 @@ function setupInput() {
   );
 
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+
+  if (
+    window.matchMedia("(pointer: coarse)").matches ||
+    navigator.maxTouchPoints > 0
+  ) {
+    document.body.classList.add("touch");
+    setupTouchControls();
+  }
+}
+
+function setupTouchControls() {
+  const pad = document.getElementById("move-pad");
+  const stick = document.getElementById("move-stick");
+  const jumpButton = document.getElementById("touch-jump");
+  const resetButton = document.getElementById("touch-reset");
+
+  if (!pad || !stick || !jumpButton || !resetButton) return;
+
+  let pointerId = -1;
+  let centerX = 0;
+  let centerY = 0;
+  let maxRadius = 36;
+
+  const resetMove = () => {
+    pointerId = -1;
+    pad.classList.remove("active");
+    stick.style.transform = "translate(0px, 0px)";
+    state.touchMove.x = 0;
+    state.touchMove.y = 0;
+    state.touchRun = false;
+  };
+
+  const applyMove = (event) => {
+    const dx = event.clientX - centerX;
+    const dy = event.clientY - centerY;
+    const length = Math.hypot(dx, dy);
+    const clamped = Math.min(length, maxRadius);
+    const nx = length > 0.001 ? dx / length : 0;
+    const ny = length > 0.001 ? dy / length : 0;
+    const x = nx * clamped;
+    const y = ny * clamped;
+
+    stick.style.transform = `translate(${x}px, ${y}px)`;
+    state.touchMove.x = x / maxRadius;
+    state.touchMove.y = -y / maxRadius;
+    state.touchRun = Math.hypot(state.touchMove.x, state.touchMove.y) > 0.8;
+  };
+
+  const endMove = (event) => {
+    if (pointerId !== -1 && event.pointerId !== pointerId) return;
+    resetMove();
+  };
+
+  pad.addEventListener("pointerdown", (event) => {
+    if (pointerId !== -1) return;
+    event.preventDefault();
+    pointerId = event.pointerId;
+    const rect = pad.getBoundingClientRect();
+    centerX = rect.left + rect.width / 2;
+    centerY = rect.top + rect.height / 2;
+    maxRadius = rect.width * 0.3;
+    pad.classList.add("active");
+    try {
+      pad.setPointerCapture(event.pointerId);
+    } catch {
+      if (import.meta.env.DEV) console.warn("Pointer capture unavailable");
+    }
+    applyMove(event);
+  });
+
+  pad.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== pointerId) return;
+    event.preventDefault();
+    applyMove(event);
+  });
+
+  pad.addEventListener("pointerup", endMove);
+  pad.addEventListener("pointercancel", endMove);
+  pad.addEventListener("lostpointercapture", endMove);
+  window.addEventListener("blur", resetMove);
+
+  jumpButton.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    state.jumpQueued = true;
+  });
+
+  resetButton.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    resetMove();
+    resetWorld();
+  });
 }
 
 function onKeyDown(event) {
@@ -3064,9 +3157,13 @@ function updatePlayer(dt) {
   state.grounded = checkGrounded();
 
   const forwardInput =
-    (state.keys.has("KeyW") ? 1 : 0) - (state.keys.has("KeyS") ? 1 : 0);
+    (state.keys.has("KeyW") ? 1 : 0) -
+    (state.keys.has("KeyS") ? 1 : 0) +
+    state.touchMove.y;
   const sideInput =
-    (state.keys.has("KeyD") ? 1 : 0) - (state.keys.has("KeyA") ? 1 : 0);
+    (state.keys.has("KeyD") ? 1 : 0) -
+    (state.keys.has("KeyA") ? 1 : 0) +
+    state.touchMove.x;
 
   getFlatForward(flatForward);
   const rightX = Math.cos(state.yaw);
@@ -3081,7 +3178,10 @@ function updatePlayer(dt) {
   const moving = moveDir.lengthSq() > 0.0001;
   if (moving) moveDir.normalize();
 
-  const running = state.keys.has("ShiftLeft") || state.keys.has("ShiftRight");
+  const running =
+    state.keys.has("ShiftLeft") ||
+    state.keys.has("ShiftRight") ||
+    state.touchRun;
   const speed = running ? RUN_SPEED : WALK_SPEED;
 
   let vy = playerVel.y;
@@ -3268,20 +3368,26 @@ function updateCamera(dt) {
 }
 
 function updateHighlight() {
+  const touch = document.body.classList.contains("touch");
+  const action = touch ? "Тап" : "ЛКМ";
+  const suffix = touch ? "" : " · E — отпустить";
+
   if (state.held) {
     setHighlighted(null);
     setHint(
       state.held.type === "sphere"
-        ? "ШАР · ЛКМ — бросить со взрывом · E — отпустить"
+        ? `ШАР · ${action} — бросить со взрывом${suffix}`
         : state.held.type === "box"
-          ? "КУБ · ЛКМ — бросить, создаёт чёрную дыру · E — отпустить"
+          ? `КУБ · ${action} — бросить, создаёт чёрную дыру${suffix}`
           : state.held.type === "frame"
-            ? "РАМА · ЛКМ — бросить, создаёт портал · E — отпустить"
+            ? `РАМА · ${action} — бросить, создаёт портал${suffix}`
             : state.held.type === "gear"
-              ? "ШЕСТЕРЁНКА · ЛКМ — бросить, запускает торнадо · E — отпустить"
+              ? `ШЕСТЕРЁНКА · ${action} — бросить, запускает торнадо${suffix}`
               : state.held.type === "capsule"
-                ? "КАПСУЛА · ЛКМ — бросить, растёт и липнет · E — отпустить"
-                : "ЛКМ — бросить · E — отпустить",
+                ? `КАПСУЛА · ${action} — бросить, растёт и липнет${suffix}`
+                : touch
+                  ? "Тап — бросить"
+                  : "ЛКМ — бросить · E — отпустить",
       true
     );
     return;
@@ -3291,9 +3397,14 @@ function updateHighlight() {
   setHighlighted(object);
 
   if (object) {
-    setHint(`${object.name.toUpperCase()} · ЛКМ — схватить`, true);
+    setHint(`${object.name.toUpperCase()} · ${action} — схватить`, true);
   } else {
-    setHint("Перетаскивай мышь — камера · Колесо — зум", false);
+    setHint(
+      touch
+        ? "Свайп — камера · Тап — взять / бросить"
+        : "Перетаскивай мышь — камера · Колесо — зум",
+      false
+    );
   }
 }
 

@@ -2,7 +2,10 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>Палочный человечек — Three.js + Jolt MT</title>
     <script src="./coi-serviceworker.min.js"></script>
@@ -23,6 +26,9 @@
         <span><kbd>E</kbd> отпустить</span>
         <span><kbd>R</kbd> сброс</span>
       </div>
+      <div class="mobile-tip">
+        Джойстик — движение · полный наклон — бег · свайп — камера
+      </div>
       <div id="stats"></div>
     </div>
 
@@ -36,6 +42,32 @@
     </div>
 
     <div id="hint">Перетаскивай мышь — камера · Колесо — зум</div>
+
+    <div id="touch-controls">
+      <div id="move-pad" aria-label="Движение">
+        <div id="move-stick"></div>
+      </div>
+      <div id="touch-actions">
+        <button
+          id="touch-jump"
+          class="touch-button"
+          type="button"
+          aria-label="Прыжок"
+        >
+          <span class="touch-icon">↑</span>
+          <span class="touch-label">ПРЫЖОК</span>
+        </button>
+        <button
+          id="touch-reset"
+          class="touch-button touch-button-secondary"
+          type="button"
+          aria-label="Сброс"
+        >
+          <span class="touch-icon">R</span>
+          <span class="touch-label">СБРОС</span>
+        </button>
+      </div>
+    </div>
 
     <div id="loader">
       <div class="spinner"></div>
