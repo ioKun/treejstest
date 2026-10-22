@@ -7,7 +7,8 @@ const MAX_SUBSTEPS = 5;
 
 const LAYER_NON_MOVING = 0;
 const LAYER_MOVING = 1;
-const NUM_LAYERS = 2;
+const LAYER_PORTAL = 2;
+const NUM_LAYERS = 3;
 
 const PLAYER_RADIUS = 0.28;
 const PLAYER_HALF_HEIGHT = 0.55;
@@ -41,12 +42,8 @@ const BLACKHOLE_ABSORB_RADIUS = 0.65;
 const BLACKHOLE_ABSORB_RATE = 5;
 const PORTAL_RADIUS = 3.2;
 const PORTAL_DURATION = 7.5;
-const PORTAL_PULL = 22;
-const PORTAL_SWIRL = 5.5;
-const PORTAL_DOWN_PULL = 14;
-const PORTAL_REMOVE_RADIUS = 0.9;
-const PORTAL_ABSORB_RATE = 12;
-const PORTAL_CAPTURE_HEIGHT = 3.2;
+const PORTAL_CAPTURE_HEIGHT = 1.5;
+const PORTAL_REMOVE_DEPTH = -0.65;
 
 const state = {
   J: null,
@@ -1038,7 +1035,6 @@ function initPortalFx() {
       tint: new THREE.Color(),
       position: new THREE.Vector3(),
       age: 0,
-      absorbBudget: 0,
       duration: PORTAL_DURATION,
       radius: PORTAL_RADIUS,
     });
@@ -1062,7 +1058,6 @@ function spawnPortal(x, z, tint) {
 
   portal.active = true;
   portal.age = 0;
-  portal.absorbBudget = 0.35;
   portal.position.set(x, 0.03, z);
   portal.group.position.copy(portal.position);
   portal.group.visible = true;
@@ -1236,6 +1231,7 @@ async function initPhysics() {
   const bpInterface = new J.BroadPhaseLayerInterfaceTable(NUM_LAYERS, NUM_LAYERS);
   bpInterface.MapObjectToBroadPhaseLayer(LAYER_NON_MOVING, bpStatic);
   bpInterface.MapObjectToBroadPhaseLayer(LAYER_MOVING, bpMoving);
+  bpInterface.MapObjectToBroadPhaseLayer(LAYER_PORTAL, bpMoving);
   J.destroy(bpStatic);
   J.destroy(bpMoving);
 
@@ -1830,6 +1826,7 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY) {
     spawnRotation,
     exploded: false,
     absorbed: false,
+    portalFall: false,
     fuse: 0,
   };
 
@@ -1990,7 +1987,14 @@ function findGrabTarget() {
   let bestScore = Infinity;
 
   for (const object of state.objects) {
-    if (object === state.held || object.exploded || object.absorbed) continue;
+    if (
+      object === state.held ||
+      object.exploded ||
+      object.absorbed ||
+      object.portalFall
+    ) {
+      continue;
+    }
 
     const dx = object.position.x - originX;
     const dy = object.position.y - originY;
@@ -2257,66 +2261,36 @@ function updatePortals(dt) {
       continue;
     }
 
-    const fade =
-      Math.min(portal.age / 0.5, 1) *
-      Math.min((portal.duration - portal.age) / 0.7, 1);
-    if (fade <= 0) continue;
-
     const radiusSq = portal.radius * portal.radius;
-    const removeRadiusSq = PORTAL_REMOVE_RADIUS * PORTAL_REMOVE_RADIUS;
-    portal.absorbBudget = Math.min(
-      1,
-      portal.absorbBudget + dt * PORTAL_ABSORB_RATE
-    );
 
     for (const object of state.objects) {
-      if (object.exploded || object.absorbed || object === state.held) continue;
-
-      const p = object.body.GetPosition();
-      const x = p.GetX();
-      const y = p.GetY();
-      const z = p.GetZ();
-      if (y < -1 || y > PORTAL_CAPTURE_HEIGHT) continue;
-
-      const dx = portal.position.x - x;
-      const dz = portal.position.z - z;
-      const distanceSq = dx * dx + dz * dz;
-      if (distanceSq > radiusSq) continue;
-
-      if (distanceSq < removeRadiusSq && y < 1.1) {
-        if (portal.absorbBudget >= 1) {
-          absorbObject(object);
-          portal.absorbBudget -= 1;
-        }
+      if (
+        object.exploded ||
+        object.absorbed ||
+        object.portalFall ||
+        object === state.held
+      ) {
         continue;
       }
 
-      const inverseMass = object.body.GetMotionProperties().GetInverseMass();
-      if (inverseMass <= 0) continue;
+      const p = object.body.GetPosition();
+      const y = p.GetY();
+      if (y < -1 || y > PORTAL_CAPTURE_HEIGHT) continue;
 
-      const distance = Math.sqrt(distanceSq);
-      const falloff = 1 - distance / portal.radius;
-      const nx = distanceSq > 0.000001 ? dx / distance : 0;
-      const nz = distanceSq > 0.000001 ? dz / distance : 0;
-      const tx = -nz;
-      const tz = nx;
-      const pull = PORTAL_PULL * falloff * fade;
-      const swirl = PORTAL_SWIRL * falloff * fade;
-      const targetX = nx * pull + tx * swirl;
-      const targetZ = nz * pull + tz * swirl;
-      const targetY = -PORTAL_DOWN_PULL * (0.35 + 0.65 * falloff) * fade;
+      const dx = portal.position.x - p.GetX();
+      const dz = portal.position.z - p.GetZ();
+      if (dx * dx + dz * dz > radiusSq) continue;
 
-      const velocity = state.bodyInterface.GetLinearVelocity(object.id);
-      const mass = 1 / inverseMass;
-      const blend = 1 - Math.exp(-6.5 * dt);
-
-      state.tmpVec3.Set(
-        (targetX - velocity.GetX()) * mass * blend,
-        (targetY - velocity.GetY()) * mass * blend,
-        (targetZ - velocity.GetZ()) * mass * blend
-      );
-      state.bodyInterface.AddImpulse(object.id, state.tmpVec3);
+      object.portalFall = true;
+      state.bodyInterface.SetObjectLayer(object.id, LAYER_PORTAL);
       state.bodyInterface.ActivateBody(object.id);
+    }
+  }
+
+  for (const object of state.objects) {
+    if (!object.portalFall || object.exploded || object.absorbed) continue;
+    if (object.body.GetPosition().GetY() <= PORTAL_REMOVE_DEPTH) {
+      absorbObject(object);
     }
   }
 }
@@ -2542,6 +2516,9 @@ function resetWorld() {
       object.exploded = false;
       object.absorbed = false;
     }
+
+    state.bodyInterface.SetObjectLayer(object.id, LAYER_MOVING);
+    object.portalFall = false;
 
     state.tmpRVec3.Set(
       object.spawnPosition.x,
