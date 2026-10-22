@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import "./style.css";
 
 const FIXED_DT = 1 / 60;
@@ -20,7 +21,11 @@ const GRAB_DISTANCE = 5;
 const GRAB_CONE = Math.cos(THREE.MathUtils.degToRad(42));
 const HOLD_DISTANCE = 1.05;
 const THROW_SPEED = 12;
-const GROUND_HALF_SIZE = 30;
+const GROUND_HALF_SIZE = 40;
+const SPAWN_MIN_RADIUS = 5;
+const SPAWN_MAX_RADIUS = 38;
+const SPAWN_CELL = 2;
+const SPAWN_JITTER = 0.2;
 
 const state = {
   J: null,
@@ -33,6 +38,8 @@ const state = {
   playerRoot: null,
   limbs: null,
   objects: [],
+  instances: {},
+  highlightMesh: null,
   held: null,
   highlighted: null,
   grounded: false,
@@ -57,6 +64,7 @@ const state = {
   tmpQuat: null,
   tmpVec3: null,
   tmpVec3b: null,
+  perf: { physics: 0, update: 0, render: 0, total: 0 },
 };
 
 const playerPos = new THREE.Vector3();
@@ -66,6 +74,10 @@ const cameraPoint = new THREE.Vector3();
 const flatForward = new THREE.Vector3();
 const moveDir = new THREE.Vector3();
 const targetVec = new THREE.Vector3();
+const tmpMatrix = new THREE.Matrix4();
+const tmpColor = new THREE.Color();
+const AXIS_X = new THREE.Vector3(1, 0, 0);
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
 
 let renderer;
 let scene;
@@ -106,6 +118,11 @@ async function boot() {
   syncMeshes();
   updateCamera(1);
   updateStats();
+
+  if (import.meta.env.DEV) {
+    window.__game = state;
+    window.__gameApi = { tryGrab, throwHeld, dropHeld, resetWorld };
+  }
 
   loaderText.textContent = "Готово";
   requestAnimationFrame(() => loader.classList.add("hidden"));
@@ -151,6 +168,7 @@ function initGraphics() {
   addSky();
   addLights();
   addGroundVisual();
+  addHighlightMesh();
   window.addEventListener("resize", onResize);
 }
 
@@ -198,13 +216,13 @@ function addLights() {
   const sun = new THREE.DirectionalLight(0xfff0da, 2.7);
   sun.position.set(10, 16, 8);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -19;
-  sun.shadow.camera.right = 19;
-  sun.shadow.camera.top = 19;
-  sun.shadow.camera.bottom = -19;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -42;
+  sun.shadow.camera.right = 42;
+  sun.shadow.camera.top = 42;
+  sun.shadow.camera.bottom = -42;
   sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 50;
+  sun.shadow.camera.far = 120;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.02;
   scene.add(sun);
@@ -232,6 +250,23 @@ function addGroundVisual() {
   ground.position.y = -0.5;
   ground.receiveShadow = true;
   scene.add(ground);
+}
+
+function addHighlightMesh() {
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x5ee2ff,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.85,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.visible = false;
+  mesh.renderOrder = 5;
+  scene.add(mesh);
+  state.highlightMesh = mesh;
 }
 
 function makeCheckerTexture() {
@@ -267,7 +302,7 @@ function makeCheckerTexture() {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(15, 15);
+  texture.repeat.set(20, 20);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
@@ -305,9 +340,9 @@ async function initPhysics() {
   );
 
   const settings = new J.JoltSettings();
-  settings.mMaxBodies = 512;
-  settings.mMaxBodyPairs = 2048;
-  settings.mMaxContactConstraints = 2048;
+  settings.mMaxBodies = 2048;
+  settings.mMaxBodyPairs = 8192;
+  settings.mMaxContactConstraints = 8192;
   state.workerThreads = Math.max(1, Math.min((navigator.hardwareConcurrency || 4) - 1, 8));
   settings.mMaxWorkerThreads = state.workerThreads;
   settings.mBroadPhaseLayerInterface = bpInterface;
@@ -456,86 +491,344 @@ function createPlayerBody() {
   state.ignorePlayerFilter = new J.IgnoreSingleBodyFilter(state.playerId);
 }
 
-const OBJECT_COLORS = [
+const SOFT_COLORS = [
   0xff8a5b, 0xffc857, 0x5dd6a8, 0x59c3ff, 0xb08cff, 0xff6f91, 0x8ee36b, 0x4fb3bf,
   0xf2a65a, 0x7d9bff, 0xe76fe0, 0x8bd450, 0xffb4a2, 0x5fa8ff,
 ];
+const METAL_COLORS = [0x8d99a6, 0xb87333, 0xc9a227, 0x6f7a85, 0x9aa7b1, 0x7c5c3e];
+const PIPE_COLORS = [0x4fb3bf, 0x8d99a6, 0xb87333, 0x5f7f8f, 0xa44a3f, 0x6f7a85];
+const FRAME_COLORS = [0x59c3ff, 0x8d99a6, 0xff8a5b, 0x5dd6a8, 0xb08cff, 0x7d9bff];
 
 const OBJECT_NAMES = {
   box: "куб",
   sphere: "шар",
   capsule: "капсула",
+  gear: "шестерёнка",
+  wire: "проволока",
+  pipe: "труба",
+  frame: "рама",
 };
 
-function spawnObjects() {
-  const types = [];
-  for (let i = 0; i < 10; i++) types.push("box");
-  for (let i = 0; i < 8; i++) types.push("sphere");
-  for (let i = 0; i < 8; i++) types.push("capsule");
+function createGearGeometry() {
+  const teeth = 14;
+  const outer = 1;
+  const root = 0.82;
+  const step = (Math.PI * 2) / teeth;
+  const shape = new THREE.Shape();
 
-  for (let i = types.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [types[i], types[j]] = [types[j], types[i]];
+  for (let i = 0; i < teeth; i++) {
+    const a = i * step;
+    const points = [
+      [a, root],
+      [a + step * 0.12, outer],
+      [a + step * 0.34, outer],
+      [a + step * 0.46, root],
+    ];
+
+    for (let k = 0; k < points.length; k++) {
+      const angle = points[k][0];
+      const r = points[k][1];
+      const x = Math.cos(angle) * r;
+      const y = Math.sin(angle) * r;
+      if (i === 0 && k === 0) shape.moveTo(x, y);
+      else shape.lineTo(x, y);
+    }
   }
 
-  types.forEach((type, index) => createObject(type, index));
+  shape.closePath();
+
+  const hole = new THREE.Path();
+  hole.absarc(0, 0, 0.34, 0, Math.PI * 2, true);
+  shape.holes.push(hole);
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: 1,
+    bevelEnabled: false,
+    curveSegments: 16,
+  });
+  geometry.translate(0, 0, -0.5);
+  geometry.rotateX(Math.PI / 2);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
-function createObject(type, index) {
-  const J = state.J;
-  const color = OBJECT_COLORS[index % OBJECT_COLORS.length];
-  const radiusBase = 3.2 + Math.random() * 10.2;
-  const angle = Math.random() * Math.PI * 2;
-  const spawnX = Math.cos(angle) * radiusBase;
-  const spawnZ = Math.sin(angle) * radiusBase;
-  const spawnY = 1.6 + Math.random() * 5.2;
+function createWireGeometry() {
+  const points = [];
+  const segments = 10;
 
-  let mesh;
-  let shape;
-  let radius;
-
-  if (type === "box") {
-    const size = 0.55 + Math.random() * 0.45;
-    radius = size * 0.5;
-    mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(size, size, size),
-      makeObjectMaterial(color)
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    points.push(
+      new THREE.Vector3(
+        Math.sin(t * Math.PI * 3) * 0.055,
+        t - 0.5,
+        Math.cos(t * Math.PI * 2) * 0.035
+      )
     );
-    shape = new J.BoxShape(new J.Vec3(radius, radius, radius), 0.02);
-  } else if (type === "sphere") {
-    radius = 0.28 + Math.random() * 0.22;
-    mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, 24, 18),
-      makeObjectMaterial(color)
-    );
-    shape = new J.SphereShape(radius);
-  } else {
-    const capRadius = 0.2 + Math.random() * 0.08;
-    const halfHeight = 0.27 + Math.random() * 0.3;
-    radius = halfHeight + capRadius;
-    mesh = new THREE.Mesh(
-      new THREE.CapsuleGeometry(capRadius, halfHeight * 2, 6, 14),
-      makeObjectMaterial(color)
-    );
-    shape = new J.CapsuleShape(halfHeight, capRadius);
   }
 
-  shape.SetDensity(170);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  const curve = new THREE.CatmullRomCurve3(points);
+  const geometry = new THREE.TubeGeometry(curve, 28, 0.028, 6, false);
+  geometry.computeBoundingBox();
+  const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+  geometry.translate(-center.x, -center.y, -center.z);
+  return geometry;
+}
 
+function createPipeGeometry() {
+  const profile = [
+    new THREE.Vector2(0.72, -0.5),
+    new THREE.Vector2(1, -0.5),
+    new THREE.Vector2(1, 0.5),
+    new THREE.Vector2(0.72, 0.5),
+    new THREE.Vector2(0.72, -0.5),
+  ];
+  const geometry = new THREE.LatheGeometry(profile, 20);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function createFrameGeometry() {
+  const thickness = 0.14;
+  const parts = [
+    new THREE.BoxGeometry(1, thickness, 1).translate(0, 0.5 - thickness / 2, 0),
+    new THREE.BoxGeometry(1, thickness, 1).translate(0, -0.5 + thickness / 2, 0),
+    new THREE.BoxGeometry(thickness, 1 - thickness * 2, 1).translate(-0.5 + thickness / 2, 0, 0),
+    new THREE.BoxGeometry(thickness, 1 - thickness * 2, 1).translate(0.5 - thickness / 2, 0, 0),
+  ];
+  const geometry = mergeGeometries(parts);
+  for (const part of parts) part.dispose();
+  return geometry;
+}
+
+const TYPE_CONFIG = {
+  box: {
+    count: 220,
+    geometry: () => new THREE.BoxGeometry(1, 1, 1),
+    material: () =>
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.42, metalness: 0.08 }),
+    palette: SOFT_COLORS,
+  },
+  sphere: {
+    count: 160,
+    geometry: () => new THREE.SphereGeometry(1, 18, 12),
+    material: () =>
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.38, metalness: 0.1 }),
+    palette: SOFT_COLORS,
+  },
+  capsule: {
+    count: 140,
+    geometry: () => new THREE.CapsuleGeometry(0.5, 1, 4, 10),
+    material: () =>
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.38, metalness: 0.1 }),
+    palette: SOFT_COLORS,
+  },
+  gear: {
+    count: 160,
+    geometry: createGearGeometry,
+    material: () =>
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.33,
+        metalness: 0.35,
+        flatShading: true,
+      }),
+    palette: METAL_COLORS,
+  },
+  wire: {
+    count: 140,
+    geometry: createWireGeometry,
+    material: () =>
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.4 }),
+    palette: METAL_COLORS,
+  },
+  pipe: {
+    count: 100,
+    geometry: createPipeGeometry,
+    material: () =>
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.3,
+        metalness: 0.35,
+        side: THREE.DoubleSide,
+      }),
+    palette: PIPE_COLORS,
+  },
+  frame: {
+    count: 80,
+    geometry: createFrameGeometry,
+    material: () =>
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.42,
+        metalness: 0.25,
+        flatShading: true,
+      }),
+    palette: FRAME_COLORS,
+  },
+};
+
+function buildSpawnCells() {
+  const cells = [];
+  const pad = SPAWN_CELL;
+  const min = -SPAWN_MAX_RADIUS - pad;
+  const max = SPAWN_MAX_RADIUS + pad;
+
+  for (let x = min; x <= max; x += SPAWN_CELL) {
+    for (let z = min; z <= max; z += SPAWN_CELL) {
+      const cx = x + SPAWN_CELL / 2 + (Math.random() - 0.5) * SPAWN_JITTER * 2;
+      const cz = z + SPAWN_CELL / 2 + (Math.random() - 0.5) * SPAWN_JITTER * 2;
+      const distance = Math.hypot(cx, cz);
+      if (distance < SPAWN_MIN_RADIUS || distance > SPAWN_MAX_RADIUS) continue;
+      cells.push({ x: cx, z: cz });
+    }
+  }
+
+  for (let i = cells.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = cells[i];
+    cells[i] = cells[j];
+    cells[j] = tmp;
+  }
+
+  return cells;
+}
+
+function spawnObjects() {
+  const cells = buildSpawnCells();
+  let cellCursor = 0;
+
+  for (const [type, config] of Object.entries(TYPE_CONFIG)) {
+    const geometry = config.geometry();
+    const material = config.material();
+    const mesh = new THREE.InstancedMesh(geometry, material, config.count);
+
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+    mesh.frustumCulled = false;
+    mesh.name = type;
+
+    scene.add(mesh);
+    state.instances[type] = mesh;
+
+    for (let i = 0; i < config.count; i++) {
+      let cell = cells[cellCursor++];
+
+      if (!cell) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance =
+          SPAWN_MIN_RADIUS + Math.sqrt(Math.random()) * (SPAWN_MAX_RADIUS - SPAWN_MIN_RADIUS);
+        cell = { x: Math.cos(angle) * distance, z: Math.sin(angle) * distance };
+      }
+
+      createObject(type, i, mesh, config.palette, cell.x, cell.z);
+    }
+
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+function createObject(type, index, mesh, palette, spawnX, spawnZ) {
+  const J = state.J;
+  const yaw = Math.random() * Math.PI * 2;
+
+  let shape;
+  let scale;
+  let bounds;
+  let radius;
+  let restHeight;
+  let density = 90;
+  let friction = 0.6;
+  let restitution = 0.18;
+  let angularDamping = 0.15;
+
+  if (type === "box") {
+    const size = 0.4 + Math.random() * 0.55;
+    const half = size / 2;
+    shape = new J.BoxShape(new J.Vec3(half, half, half), 0.02);
+    scale = new THREE.Vector3(size, size, size);
+    bounds = new THREE.Vector3(size, size, size);
+    radius = half;
+    restHeight = half;
+  } else if (type === "sphere") {
+    const r = 0.16 + Math.random() * 0.3;
+    shape = new J.SphereShape(r);
+    scale = new THREE.Vector3(r, r, r);
+    bounds = new THREE.Vector3(r * 2, r * 2, r * 2);
+    radius = r;
+    restHeight = r;
+  } else if (type === "capsule") {
+    const r = 0.13 + Math.random() * 0.13;
+    const half = 0.2 + Math.random() * 0.3;
+    shape = new J.CapsuleShape(half, r);
+    scale = new THREE.Vector3(r * 2, half + r, r * 2);
+    bounds = new THREE.Vector3(r * 2, (half + r) * 2, r * 2);
+    radius = half + r;
+    restHeight = r;
+  } else if (type === "gear") {
+    const gearRadius = 0.24 + Math.random() * 0.32;
+    const thickness = 0.08 + Math.random() * 0.14;
+    shape = new J.CylinderShape(thickness / 2, gearRadius, 0.02);
+    scale = new THREE.Vector3(gearRadius, thickness, gearRadius);
+    bounds = new THREE.Vector3(gearRadius * 2, thickness, gearRadius * 2);
+    radius = gearRadius;
+    restHeight = thickness / 2;
+    density = 260;
+    restitution = 0.05;
+    angularDamping = 0.25;
+  } else if (type === "wire") {
+    const length = 0.7 + Math.random() * 0.9;
+    shape = new J.CapsuleShape(length / 2, 0.05);
+    scale = new THREE.Vector3(1, length, 1);
+    bounds = new THREE.Vector3(0.32, length, 0.32);
+    radius = length / 2;
+    restHeight = 0.06;
+    density = 500;
+    friction = 0.5;
+    restitution = 0.08;
+  } else if (type === "pipe") {
+    const pipeRadius = 0.16 + Math.random() * 0.18;
+    const length = 0.7 + Math.random() * 0.8;
+    shape = new J.CylinderShape(length / 2, pipeRadius, 0.02);
+    scale = new THREE.Vector3(pipeRadius, length, pipeRadius);
+    bounds = new THREE.Vector3(pipeRadius * 2, length, pipeRadius * 2);
+    radius = Math.max(pipeRadius, length / 2);
+    restHeight = pipeRadius;
+    density = 180;
+    friction = 0.55;
+    restitution = 0.05;
+    angularDamping = 0.22;
+  } else {
+    const size = 0.65 + Math.random() * 0.5;
+    const depth = 0.07 + Math.random() * 0.08;
+    shape = new J.BoxShape(new J.Vec3(size / 2, size / 2, depth / 2), 0.015);
+    scale = new THREE.Vector3(size, size, depth);
+    bounds = new THREE.Vector3(size, size, depth);
+    radius = size / 2;
+    restHeight = depth / 2;
+    density = 200;
+    friction = 0.6;
+    restitution = 0.04;
+    angularDamping = 0.2;
+  }
+
+  shape.SetDensity(density);
+
+  let spawnRotation;
+  if (type === "sphere") {
+    spawnRotation = new THREE.Quaternion();
+  } else if (type === "capsule" || type === "wire" || type === "pipe" || type === "frame") {
+    spawnRotation = new THREE.Quaternion()
+      .setFromAxisAngle(AXIS_Y, yaw)
+      .multiply(new THREE.Quaternion().setFromAxisAngle(AXIS_X, Math.PI / 2));
+  } else {
+    spawnRotation = new THREE.Quaternion().setFromAxisAngle(AXIS_Y, yaw);
+  }
+
+  const spawnY = restHeight + 0.02 + Math.random() * 0.08;
   const spawnPosition = new THREE.Vector3(spawnX, spawnY, spawnZ);
-  const spawnRotation = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(
-      Math.random() * Math.PI * 2,
-      Math.random() * Math.PI * 2,
-      Math.random() * Math.PI * 2
-    )
-  );
-
-  mesh.position.copy(spawnPosition);
-  mesh.quaternion.copy(spawnRotation);
-  scene.add(mesh);
 
   const position = new J.RVec3(spawnX, spawnY, spawnZ);
   const rotation = new J.Quat(
@@ -551,44 +844,42 @@ function createObject(type, index) {
     J.EMotionType_Dynamic,
     LAYER_MOVING
   );
-  settings.mFriction = 0.6;
-  settings.mRestitution = 0.18;
+  settings.mFriction = friction;
+  settings.mRestitution = restitution;
   settings.mLinearDamping = 0.04;
-  settings.mAngularDamping = 0.15;
+  settings.mAngularDamping = angularDamping;
   settings.mAllowSleeping = true;
-  settings.mMotionQuality = J.EMotionQuality_LinearCast;
+  settings.mMotionQuality = J.EMotionQuality_Discrete;
 
   const body = state.bodyInterface.CreateBody(settings);
   J.destroy(settings);
   J.destroy(position);
   J.destroy(rotation);
-  state.bodyInterface.AddBody(body.GetID(), J.EActivation_Activate);
+
+  const id = body.GetID();
+  state.bodyInterface.AddBody(id, J.EActivation_Activate);
 
   const object = {
     type,
     name: OBJECT_NAMES[type],
-    mesh,
     body,
-    id: body.GetID(),
+    id,
     radius,
+    scale,
+    bounds,
+    position: spawnPosition.clone(),
+    quaternion: spawnRotation.clone(),
+    instanceMesh: mesh,
+    instanceIndex: index,
     spawnPosition,
     spawnRotation,
   };
 
   state.objects.push(object);
 
-  const p = body.GetPosition();
-  mesh.position.set(p.GetX(), p.GetY(), p.GetZ());
-}
-
-function makeObjectMaterial(color) {
-  return new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.36,
-    metalness: 0.1,
-    emissive: 0xffffff,
-    emissiveIntensity: 0,
-  });
+  tmpMatrix.compose(spawnPosition, spawnRotation, scale);
+  mesh.setMatrixAt(index, tmpMatrix);
+  mesh.setColorAt(index, tmpColor.setHex(palette[index % palette.length]));
 }
 
 function setupInput() {
@@ -743,9 +1034,9 @@ function findGrabTarget() {
   for (const object of state.objects) {
     if (object === state.held) continue;
 
-    const dx = object.mesh.position.x - originX;
-    const dy = object.mesh.position.y - originY;
-    const dz = object.mesh.position.z - originZ;
+    const dx = object.position.x - originX;
+    const dy = object.position.y - originY;
+    const dz = object.position.z - originZ;
     const distance = Math.hypot(dx, dy, dz);
 
     if (distance < 0.25 || distance > GRAB_DISTANCE) continue;
@@ -1017,25 +1308,36 @@ function setHint(text, active) {
 }
 
 function setHighlighted(object) {
-  if (state.highlighted === object) return;
-
-  if (state.highlighted) {
-    state.highlighted.mesh.material.emissiveIntensity = 0;
-  }
-
   state.highlighted = object;
 
-  if (state.highlighted) {
-    state.highlighted.mesh.material.emissiveIntensity = 0.22;
+  const mesh = state.highlightMesh;
+  if (!object) {
+    mesh.visible = false;
+    return;
   }
+
+  mesh.visible = true;
+  mesh.position.copy(object.position);
+  mesh.quaternion.copy(object.quaternion);
+  mesh.scale.set(
+    object.bounds.x + 0.06,
+    object.bounds.y + 0.06,
+    object.bounds.z + 0.06
+  );
 }
 
 function syncMeshes() {
   for (const object of state.objects) {
     const p = object.body.GetPosition();
     const q = object.body.GetRotation();
-    object.mesh.position.set(p.GetX(), p.GetY(), p.GetZ());
-    object.mesh.quaternion.set(q.GetX(), q.GetY(), q.GetZ(), q.GetW());
+    object.position.set(p.GetX(), p.GetY(), p.GetZ());
+    object.quaternion.set(q.GetX(), q.GetY(), q.GetZ(), q.GetW());
+    tmpMatrix.compose(object.position, object.quaternion, object.scale);
+    object.instanceMesh.setMatrixAt(object.instanceIndex, tmpMatrix);
+  }
+
+  for (const type of Object.keys(state.instances)) {
+    state.instances[type].instanceMatrix.needsUpdate = true;
   }
 
   const p = state.playerBody.GetPosition();
@@ -1117,6 +1419,7 @@ function fixedUpdate() {
 
 function animate() {
   requestAnimationFrame(animate);
+  const frameStart = performance.now();
 
   clock.update();
   const dt = Math.min(clock.getDelta(), 0.1);
@@ -1130,12 +1433,21 @@ function animate() {
   }
 
   if (steps === MAX_SUBSTEPS) accumulator = 0;
+  const afterPhysics = performance.now();
 
   readPlayerState();
   syncMeshes();
   animateLimbs(Math.min(dt, 0.05));
   updateCamera(dt);
   updateHighlight();
+  const afterUpdate = performance.now();
 
   renderer.render(scene, camera);
+  const afterRender = performance.now();
+
+  const perf = state.perf;
+  perf.physics += (afterPhysics - frameStart - perf.physics) * 0.1;
+  perf.update += (afterUpdate - afterPhysics - perf.update) * 0.1;
+  perf.render += (afterRender - afterUpdate - perf.render) * 0.1;
+  perf.total += (afterRender - frameStart - perf.total) * 0.1;
 }
