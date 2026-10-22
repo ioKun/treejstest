@@ -47,6 +47,14 @@ const PORTAL_CAPTURE_HEIGHT = 1.5;
 const PORTAL_REMOVE_DEPTH = -0.65;
 const CAPSULE_GROW = 2.8;
 const CAPSULE_STICK_PADDING = 0.05;
+const TORNADO_RADIUS = 2;
+const TORNADO_HEIGHT = 4.2;
+const TORNADO_DURATION = 5;
+const TORNADO_SPEED = 6.5;
+const TORNADO_PULL = 15;
+const TORNADO_SWIRL = 16;
+const TORNADO_LIFT = 9.5;
+const TORNADO_PARTICLES = 80;
 
 const state = {
   J: null,
@@ -64,6 +72,7 @@ const state = {
   fx: null,
   blackHoles: [],
   portals: [],
+  tornadoes: [],
   stickyCapsules: [],
   armed: [],
   held: null,
@@ -109,6 +118,7 @@ const tmpColor = new THREE.Color();
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const PORTAL_BASE_COLOR = new THREE.Color(0x59c3ff);
+const TORNADO_BASE_COLOR = new THREE.Color(0xb9c9d6);
 const stickyCapsulePos = new THREE.Vector3();
 const stickyCapsuleQuat = new THREE.Quaternion();
 const stickyCapsuleInverse = new THREE.Quaternion();
@@ -223,6 +233,7 @@ function initGraphics() {
   initExplosionFx();
   initBlackHoleFx();
   initPortalFx();
+  initTornadoFx();
   window.addEventListener("resize", onResize);
 }
 
@@ -1130,6 +1141,294 @@ function resetPortalFx() {
   }
 }
 
+function makeDustTexture() {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const gradient = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2
+  );
+  gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+  gradient.addColorStop(0.32, "rgba(220, 240, 255, 0.72)");
+  gradient.addColorStop(1, "rgba(200, 225, 255, 0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function initTornadoFx() {
+  const funnelGeometry = new THREE.CylinderGeometry(
+    2,
+    0.5,
+    TORNADO_HEIGHT,
+    48,
+    10,
+    true
+  );
+  const ringGeometry = new THREE.RingGeometry(0.25, 1.9, 48);
+  ringGeometry.rotateX(-Math.PI / 2);
+  const dustTexture = makeDustTexture();
+
+  const vertexShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `;
+
+  const fragmentShader = `
+    uniform float uTime;
+    uniform float uAlpha;
+    uniform vec3 uTint;
+    varying vec2 vUv;
+
+    void main() {
+      float spin = uTime * 9.0;
+      float band = 0.5 + 0.5 * sin(vUv.x * 94.2478 + vUv.y * 16.0 - spin);
+      float filament = smoothstep(0.35, 1.0, band);
+      float thin = smoothstep(
+        0.55,
+        1.0,
+        0.5 + 0.5 * sin(vUv.x * 37.699 + vUv.y * 28.0 - spin * 1.4)
+      );
+      float edge =
+        smoothstep(0.0, 0.1, vUv.y) *
+        (1.0 - smoothstep(0.76, 1.0, vUv.y));
+      float alpha = uAlpha * (0.07 + 0.24 * filament + 0.12 * thin) * edge;
+      vec3 base = vec3(0.45, 0.54, 0.64);
+      vec3 color = mix(base, uTint, 0.25 + 0.4 * filament);
+      gl_FragColor = vec4(color, alpha);
+    }
+  `;
+
+  const tornadoes = [];
+
+  for (let i = 0; i < 3; i++) {
+    const group = new THREE.Group();
+    group.visible = false;
+
+    const funnelMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uAlpha: { value: 0 },
+        uTint: { value: new THREE.Color(0xd8ecff) },
+      },
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const funnel = new THREE.Mesh(funnelGeometry, funnelMaterial);
+    funnel.position.y = TORNADO_HEIGHT / 2;
+    funnel.frustumCulled = false;
+    funnel.renderOrder = 3;
+    group.add(funnel);
+
+    const innerFunnel = new THREE.Mesh(funnelGeometry, funnelMaterial);
+    innerFunnel.position.y = TORNADO_HEIGHT / 2;
+    innerFunnel.scale.set(0.62, 1, 0.62);
+    innerFunnel.rotation.y = Math.PI * 0.5;
+    innerFunnel.frustumCulled = false;
+    innerFunnel.renderOrder = 3;
+    group.add(innerFunnel);
+
+    const dustPositions = new Float32Array(TORNADO_PARTICLES * 3);
+    const dustGeometry = new THREE.BufferGeometry();
+    dustGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(dustPositions, 3)
+    );
+    const dustMaterial = new THREE.PointsMaterial({
+      color: 0xb9c9d6,
+      size: 0.17,
+      map: dustTexture,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    const dust = new THREE.Points(dustGeometry, dustMaterial);
+    dust.frustumCulled = false;
+    dust.renderOrder = 4;
+    group.add(dust);
+
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0xd8ecff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    ring.position.y = 0.025;
+    ring.frustumCulled = false;
+    ring.renderOrder = 2;
+    group.add(ring);
+
+    scene.add(group);
+
+    const particles = [];
+    for (let p = 0; p < TORNADO_PARTICLES; p++) {
+      particles.push({
+        angle: 0,
+        radius: 0,
+        y: 0,
+        rise: 0,
+        spin: 0,
+      });
+    }
+
+    tornadoes.push({
+      active: false,
+      group,
+      funnelMaterial,
+      dustMaterial,
+      dustPositions,
+      dustGeometry,
+      particles,
+      ring,
+      ringMaterial,
+      tint: new THREE.Color(),
+      position: new THREE.Vector3(),
+      direction: new THREE.Vector3(0, 0, -1),
+      age: 0,
+      duration: TORNADO_DURATION,
+      radius: TORNADO_RADIUS,
+      speed: TORNADO_SPEED,
+    });
+  }
+
+  state.tornadoes = tornadoes;
+}
+
+function resetTornadoParticles(tornado) {
+  const positions = tornado.dustPositions;
+
+  for (let i = 0; i < TORNADO_PARTICLES; i++) {
+    const particle = tornado.particles[i];
+    particle.angle = Math.random() * Math.PI * 2;
+    particle.radius = 0.35 + Math.random() * 0.65;
+    particle.y = Math.random() * TORNADO_HEIGHT;
+    particle.rise = 1.4 + Math.random() * 2.2;
+    particle.spin = 2.6 + Math.random() * 4.8;
+
+    const spread = 0.35 + (particle.y / TORNADO_HEIGHT) * 1.45;
+    const radius = particle.radius * spread;
+    positions[i * 3] = Math.cos(particle.angle) * radius;
+    positions[i * 3 + 1] = particle.y;
+    positions[i * 3 + 2] = Math.sin(particle.angle) * radius;
+  }
+
+  tornado.dustGeometry.attributes.position.needsUpdate = true;
+}
+
+function spawnTornado(x, z, dirX, dirZ, tint) {
+  const tornadoes = state.tornadoes;
+  if (!tornadoes.length) return;
+
+  let tornado = tornadoes.find((entry) => !entry.active);
+
+  if (!tornado) {
+    tornado = tornadoes.reduce(
+      (oldest, entry) => (entry.age > oldest.age ? entry : oldest),
+      tornadoes[0]
+    );
+  }
+
+  tornado.active = true;
+  tornado.age = 0;
+  tornado.position.set(x, 0, z);
+  tornado.direction.set(dirX, 0, dirZ);
+  if (tornado.direction.lengthSq() < 0.000001) {
+    tornado.direction.set(0, 0, -1);
+  } else {
+    tornado.direction.normalize();
+  }
+
+  tornado.group.position.copy(tornado.position);
+  tornado.group.visible = true;
+  tornado.tint.copy(tint).lerp(TORNADO_BASE_COLOR, 0.6);
+  tornado.funnelMaterial.uniforms.uTime.value = 0;
+  tornado.funnelMaterial.uniforms.uAlpha.value = 0;
+  tornado.funnelMaterial.uniforms.uTint.value.copy(tornado.tint);
+  tornado.dustMaterial.color.copy(tornado.tint).lerp(TORNADO_BASE_COLOR, 0.25);
+  tornado.dustMaterial.opacity = 0;
+  tornado.ringMaterial.color.copy(tornado.tint);
+  tornado.ringMaterial.opacity = 0;
+  tornado.ring.scale.setScalar(1);
+  resetTornadoParticles(tornado);
+}
+
+function deactivateTornado(tornado) {
+  tornado.active = false;
+  tornado.group.visible = false;
+  tornado.funnelMaterial.uniforms.uAlpha.value = 0;
+  tornado.dustMaterial.opacity = 0;
+  tornado.ringMaterial.opacity = 0;
+}
+
+function updateTornadoFx(dt) {
+  for (const tornado of state.tornadoes) {
+    if (!tornado.active) continue;
+
+    const fadeIn = Math.min(tornado.age / 0.45, 1);
+    const fadeOut = Math.min((tornado.duration - tornado.age) / 0.6, 1);
+    const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
+
+    tornado.group.position.set(
+      tornado.position.x,
+      0,
+      tornado.position.z
+    );
+    tornado.funnelMaterial.uniforms.uTime.value = tornado.age;
+    tornado.funnelMaterial.uniforms.uAlpha.value = alpha;
+    tornado.dustMaterial.opacity = 0.8 * alpha;
+    tornado.ringMaterial.opacity = 0.22 * alpha;
+    tornado.ring.scale.setScalar(1 + Math.sin(tornado.age * 8) * 0.05);
+
+    const positions = tornado.dustPositions;
+
+    for (let i = 0; i < TORNADO_PARTICLES; i++) {
+      const particle = tornado.particles[i];
+      particle.y += particle.rise * dt;
+      particle.angle += particle.spin * dt;
+
+      if (particle.y > TORNADO_HEIGHT) {
+        particle.y -= TORNADO_HEIGHT;
+        particle.angle = Math.random() * Math.PI * 2;
+        particle.radius = 0.35 + Math.random() * 0.65;
+      }
+
+      const spread = 0.35 + (particle.y / TORNADO_HEIGHT) * 1.45;
+      const radius = particle.radius * spread;
+      positions[i * 3] = Math.cos(particle.angle) * radius;
+      positions[i * 3 + 1] = particle.y;
+      positions[i * 3 + 2] = Math.sin(particle.angle) * radius;
+    }
+
+    tornado.dustGeometry.attributes.position.needsUpdate = true;
+  }
+}
+
+function resetTornadoFx() {
+  for (const tornado of state.tornadoes) {
+    deactivateTornado(tornado);
+  }
+}
+
 function makeAsphaltTexture() {
   const size = 512;
   const canvas = document.createElement("canvas");
@@ -1861,6 +2160,7 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY) {
     exploded: false,
     absorbed: false,
     portalFall: false,
+    throwDirection: null,
     fuse: 0,
   };
 
@@ -2088,6 +2388,15 @@ function throwHeld() {
 
   state.bodyInterface.SetGravityFactor(object.id, 1);
   if (object.type === "capsule") activateStickyCapsule(object);
+  if (object.type === "gear") {
+    if (!object.throwDirection) object.throwDirection = new THREE.Vector3();
+    object.throwDirection.set(vx, 0, vz);
+    if (object.throwDirection.lengthSq() < 0.01) {
+      getFlatForward(object.throwDirection);
+    } else {
+      object.throwDirection.normalize();
+    }
+  }
   setBodyVelocity(object.id, vx, vy, vz);
 
   const spin = state.tmpVec3b;
@@ -2102,7 +2411,8 @@ function throwHeld() {
   if (
     object.type === "sphere" ||
     object.type === "box" ||
-    object.type === "frame"
+    object.type === "frame" ||
+    object.type === "gear"
   ) {
     armObject(object);
   }
@@ -2293,7 +2603,8 @@ function armObject(object) {
   if (
     object.type !== "sphere" &&
     object.type !== "box" &&
-    object.type !== "frame"
+    object.type !== "frame" &&
+    object.type !== "gear"
   ) {
     return;
   }
@@ -2317,6 +2628,7 @@ function updateArmed(dt) {
     state.armed.splice(i, 1);
     if (object.type === "box") createBlackHole(object);
     else if (object.type === "frame") openPortalFromFrame(object);
+    else if (object.type === "gear") createTornadoFromGear(object);
     else explodeBall(object);
   }
 }
@@ -2356,6 +2668,39 @@ function openPortalFromFrame(object) {
   state.removed += 1;
   hideObjectInstance(object);
   spawnPortal(x, z, tmpColor);
+}
+
+function createTornadoFromGear(object) {
+  const p = object.body.GetPosition();
+  const limit = GROUND_HALF_SIZE - TORNADO_RADIUS - 0.5;
+  const x = THREE.MathUtils.clamp(p.GetX(), -limit, limit);
+  const z = THREE.MathUtils.clamp(p.GetZ(), -limit, limit);
+
+  const velocity = state.bodyInterface.GetLinearVelocity(object.id);
+  let dx = velocity.GetX();
+  let dz = velocity.GetZ();
+  let length = Math.hypot(dx, dz);
+
+  if (length < 0.75 && object.throwDirection) {
+    dx = object.throwDirection.x;
+    dz = object.throwDirection.z;
+    length = Math.hypot(dx, dz);
+  }
+
+  if (length < 0.001) {
+    dx = -Math.sin(state.yaw);
+    dz = -Math.cos(state.yaw);
+    length = 1;
+  }
+
+  object.instanceMesh.getColorAt(object.instanceIndex, tmpColor);
+  object.position.set(x, 0, z);
+  state.bodyInterface.RemoveBody(object.id);
+  object.exploded = true;
+  object.fuse = 0;
+  state.removed += 1;
+  hideObjectInstance(object);
+  spawnTornado(x, z, dx / length, dz / length, tmpColor);
 }
 
 function explodeBall(object) {
@@ -2478,6 +2823,99 @@ function updateBlackHoles(dt) {
         (targetZ - velocity.GetZ()) * mass * blend
       );
       state.bodyInterface.AddImpulse(object.id, state.tmpVec3);
+      state.bodyInterface.ActivateBody(object.id);
+    }
+  }
+}
+
+function updateTornadoes(dt) {
+  for (const tornado of state.tornadoes) {
+    if (!tornado.active) continue;
+
+    tornado.age += dt;
+    if (tornado.age >= tornado.duration) {
+      deactivateTornado(tornado);
+      continue;
+    }
+
+    const limit = GROUND_HALF_SIZE - TORNADO_RADIUS - 0.5;
+    tornado.position.x = THREE.MathUtils.clamp(
+      tornado.position.x + tornado.direction.x * tornado.speed * dt,
+      -limit,
+      limit
+    );
+    tornado.position.z = THREE.MathUtils.clamp(
+      tornado.position.z + tornado.direction.z * tornado.speed * dt,
+      -limit,
+      limit
+    );
+
+    const fade =
+      Math.min(tornado.age / 0.4, 1) *
+      Math.min((tornado.duration - tornado.age) / 0.55, 1);
+    const radiusSq = tornado.radius * tornado.radius;
+
+    for (const object of state.objects) {
+      if (
+        object.exploded ||
+        object.absorbed ||
+        object.portalFall ||
+        object.stuckTo ||
+        object === state.held
+      ) {
+        continue;
+      }
+
+      const p = object.body.GetPosition();
+      const y = p.GetY();
+      if (y < -1 || y > TORNADO_HEIGHT + 1) continue;
+
+      const dx = tornado.position.x - p.GetX();
+      const dz = tornado.position.z - p.GetZ();
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq > radiusSq) continue;
+
+      const inverseMass = object.body.GetMotionProperties().GetInverseMass();
+      if (inverseMass <= 0) continue;
+
+      const distance = Math.sqrt(distanceSq);
+      const falloff = 1 - distance / tornado.radius;
+      let inwardX = 0;
+      let inwardZ = 0;
+      let tangentX = 1;
+      let tangentZ = 0;
+
+      if (distance > 0.05) {
+        inwardX = dx / distance;
+        inwardZ = dz / distance;
+        tangentX = -inwardZ;
+        tangentZ = inwardX;
+      }
+
+      const pull = TORNADO_PULL * falloff * fade;
+      const swirl =
+        TORNADO_SWIRL * (0.45 + 0.55 * falloff) * fade;
+      const targetX = inwardX * pull + tangentX * swirl;
+      const targetZ = inwardZ * pull + tangentZ * swirl;
+      const targetY = TORNADO_LIFT * (0.45 + 0.55 * falloff) * fade;
+      const mass = 1 / inverseMass;
+      const blend = 0.16;
+      const velocity = state.bodyInterface.GetLinearVelocity(object.id);
+
+      state.tmpVec3.Set(
+        (targetX - velocity.GetX()) * mass * blend,
+        (targetY - velocity.GetY()) * mass * blend,
+        (targetZ - velocity.GetZ()) * mass * blend
+      );
+      state.bodyInterface.AddImpulse(object.id, state.tmpVec3);
+
+      const spinScale = mass * (1.5 + 4.5 * falloff) * fade;
+      state.tmpVec3b.Set(
+        (Math.random() - 0.5) * spinScale,
+        (Math.random() - 0.5) * spinScale,
+        (Math.random() - 0.5) * spinScale
+      );
+      state.bodyInterface.AddAngularImpulse(object.id, state.tmpVec3b);
       state.bodyInterface.ActivateBody(object.id);
     }
   }
@@ -2749,6 +3187,7 @@ function resetWorld() {
   resetExplosionFx();
   resetBlackHoleFx();
   resetPortalFx();
+  resetTornadoFx();
 
   for (const object of state.objects) {
     if (object.stuckObjects && object.stuckObjects.length) {
@@ -2838,9 +3277,11 @@ function updateHighlight() {
           ? "КУБ · ЛКМ — бросить, создаёт чёрную дыру · E — отпустить"
           : state.held.type === "frame"
             ? "РАМА · ЛКМ — бросить, создаёт портал · E — отпустить"
-            : state.held.type === "capsule"
-              ? "КАПСУЛА · ЛКМ — бросить, растёт и липнет · E — отпустить"
-              : "ЛКМ — бросить · E — отпустить",
+            : state.held.type === "gear"
+              ? "ШЕСТЕРЁНКА · ЛКМ — бросить, запускает торнадо · E — отпустить"
+              : state.held.type === "capsule"
+                ? "КАПСУЛА · ЛКМ — бросить, растёт и липнет · E — отпустить"
+                : "ЛКМ — бросить · E — отпустить",
       true
     );
     return;
@@ -2985,6 +3426,7 @@ function fixedUpdate() {
   updateHeld(FIXED_DT);
   updateArmed(FIXED_DT);
   updateBlackHoles(FIXED_DT);
+  updateTornadoes(FIXED_DT);
   updatePortals(FIXED_DT);
   state.jolt.Step(FIXED_DT, 1);
   updateStickyCapsules();
@@ -3013,6 +3455,7 @@ function animate() {
   animateLimbs(Math.min(dt, 0.05));
   updateExplosionFx(Math.min(dt, 0.05));
   updateBlackHoleFx(Math.min(dt, 0.05));
+  updateTornadoFx(Math.min(dt, 0.05));
   updatePortalFx(Math.min(dt, 0.05));
   updateCamera(dt);
   updateHighlight();
