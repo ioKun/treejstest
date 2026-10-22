@@ -31,8 +31,14 @@ const PILE_CELL = 1.16;
 const PILE_JITTER = 0.04;
 const BLAST_RADIUS = 5.5;
 const BLAST_SPEED = 11;
-const BALL_FUSE = 0.6;
+const SPECIAL_FUSE = 0.6;
 const MAX_SPARKS = 400;
+const BLACKHOLE_RADIUS = 7.5;
+const BLACKHOLE_DURATION = 4.5;
+const BLACKHOLE_PULL = 16;
+const BLACKHOLE_SWIRL = 3.5;
+const BLACKHOLE_ABSORB_RADIUS = 0.65;
+const BLACKHOLE_ABSORB_RATE = 5;
 
 const state = {
   J: null,
@@ -48,6 +54,7 @@ const state = {
   instances: {},
   highlightMesh: null,
   fx: null,
+  blackHoles: [],
   armed: [],
   held: null,
   highlighted: null,
@@ -176,12 +183,15 @@ function initGraphics() {
   scene.fog = new THREE.FogExp2(0x0a101a, 0.016);
 
   camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 220);
+  state.camera = camera;
+  state.scene = scene;
 
   addSky();
   addLights();
   addGroundVisual();
   addHighlightMesh();
   initExplosionFx();
+  initBlackHoleFx();
   window.addEventListener("resize", onResize);
 }
 
@@ -608,6 +618,183 @@ function resetExplosionFx() {
 
   sparks.geometry.attributes.position.needsUpdate = true;
   sparks.geometry.attributes.color.needsUpdate = true;
+}
+
+function makeBlackHoleTexture() {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const gradient = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2
+  );
+  gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+  gradient.addColorStop(0.3, "rgba(80, 35, 160, 0.08)");
+  gradient.addColorStop(0.5, "rgba(150, 85, 255, 0.55)");
+  gradient.addColorStop(0.62, "rgba(255, 145, 70, 0.22)");
+  gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function initBlackHoleFx() {
+  const coreGeometry = new THREE.SphereGeometry(0.42, 24, 16);
+  const diskGeometry = new THREE.RingGeometry(
+    0.55,
+    1.35,
+    48,
+    1,
+    0,
+    Math.PI * 1.65
+  );
+  diskGeometry.rotateX(-Math.PI / 2);
+  const ringGeometry = new THREE.TorusGeometry(0.92, 0.035, 8, 48);
+  const haloTexture = makeBlackHoleTexture();
+  const holes = [];
+
+  for (let i = 0; i < 3; i++) {
+    const group = new THREE.Group();
+    group.visible = false;
+
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color: 0x05020c,
+      transparent: true,
+      opacity: 0,
+    });
+    const core = new THREE.Mesh(coreGeometry, coreMaterial);
+    group.add(core);
+
+    const diskMaterial = new THREE.MeshBasicMaterial({
+      color: 0x8b5cff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const disk = new THREE.Mesh(diskGeometry, diskMaterial);
+    disk.renderOrder = 7;
+    group.add(disk);
+
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffa36b,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    ring.rotation.x = Math.PI / 2 - 0.35;
+    ring.renderOrder = 8;
+    group.add(ring);
+
+    const haloMaterial = new THREE.SpriteMaterial({
+      map: haloTexture,
+      color: 0xa77bff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const halo = new THREE.Sprite(haloMaterial);
+    halo.scale.set(4.5, 4.5, 1);
+    halo.renderOrder = 6;
+    group.add(halo);
+
+    scene.add(group);
+    holes.push({
+      active: false,
+      group,
+      coreMaterial,
+      diskMaterial,
+      ringMaterial,
+      haloMaterial,
+      disk,
+      ring,
+      halo,
+      position: new THREE.Vector3(),
+      age: 0,
+      absorbBudget: 0,
+      duration: BLACKHOLE_DURATION,
+      radius: BLACKHOLE_RADIUS,
+    });
+  }
+
+  state.blackHoles = holes;
+}
+
+function spawnBlackHole(x, y, z) {
+  const holes = state.blackHoles;
+  if (!holes.length) return;
+
+  let hole = holes.find((entry) => !entry.active);
+
+  if (!hole) {
+    hole = holes.reduce(
+      (oldest, entry) => (entry.age > oldest.age ? entry : oldest),
+      holes[0]
+    );
+  }
+
+  hole.active = true;
+  hole.age = 0;
+  hole.absorbBudget = 0.5;
+  hole.position.set(x, y, z);
+  hole.group.position.copy(hole.position);
+  hole.group.visible = true;
+  hole.group.scale.setScalar(0.2);
+  hole.disk.rotation.set(0, 0, 0);
+  hole.ring.rotation.set(Math.PI / 2 - 0.35, 0, 0);
+  hole.coreMaterial.opacity = 0;
+  hole.diskMaterial.opacity = 0;
+  hole.ringMaterial.opacity = 0;
+  hole.haloMaterial.opacity = 0;
+}
+
+function deactivateBlackHole(hole) {
+  hole.active = false;
+  hole.group.visible = false;
+}
+
+function updateBlackHoleFx(dt) {
+  for (const hole of state.blackHoles) {
+    if (!hole.active) continue;
+
+    const fadeIn = Math.min(hole.age / 0.3, 1);
+    const fadeOut = Math.min((hole.duration - hole.age) / 0.55, 1);
+    const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
+
+    hole.group.scale.setScalar(0.2 + 0.8 * alpha);
+    hole.coreMaterial.opacity = alpha;
+    hole.diskMaterial.opacity = 0.5 * alpha;
+    hole.ringMaterial.opacity = 0.8 * alpha;
+    hole.haloMaterial.opacity = 0.7 * alpha;
+    hole.disk.rotation.y += dt * 2.1;
+    hole.ring.rotation.z += dt * 2.6;
+
+    const pulse = 1 + Math.sin(hole.age * 7) * 0.08;
+    hole.halo.scale.set(4.5 * pulse, 4.5 * pulse, 1);
+  }
+}
+
+function resetBlackHoleFx() {
+  for (const hole of state.blackHoles) {
+    hole.active = false;
+    hole.group.visible = false;
+  }
 }
 
 function makeCheckerTexture() {
@@ -1259,6 +1446,7 @@ function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY) {
     spawnPosition,
     spawnRotation,
     exploded: false,
+    absorbed: false,
     fuse: 0,
   };
 
@@ -1419,7 +1607,7 @@ function findGrabTarget() {
   let bestScore = Infinity;
 
   for (const object of state.objects) {
-    if (object === state.held || object.exploded) continue;
+    if (object === state.held || object.exploded || object.absorbed) continue;
 
     const dx = object.position.x - originX;
     const dy = object.position.y - originY;
@@ -1488,27 +1676,55 @@ function throwHeld() {
   state.bodyInterface.SetAngularVelocity(object.id, spin);
   state.bodyInterface.ActivateBody(object.id);
 
-  if (object.type === "sphere") armBall(object);
+  if (object.type === "sphere" || object.type === "box") armObject(object);
 
   state.held = null;
 }
 
-function armBall(object) {
-  if (object.exploded) return;
-  object.fuse = BALL_FUSE;
+function armObject(object) {
+  if (object.exploded || object.absorbed) return;
+  if (object.type !== "sphere" && object.type !== "box") return;
+  object.fuse = SPECIAL_FUSE;
   if (!state.armed.includes(object)) state.armed.push(object);
 }
 
 function updateArmed(dt) {
   for (let i = state.armed.length - 1; i >= 0; i--) {
     const object = state.armed[i];
+
+    if (object.exploded || object.absorbed) {
+      state.armed.splice(i, 1);
+      continue;
+    }
+
     object.fuse -= dt;
 
     if (object.fuse > 0) continue;
 
     state.armed.splice(i, 1);
-    explodeBall(object);
+    if (object.type === "box") createBlackHole(object);
+    else explodeBall(object);
   }
+}
+
+function hideObjectInstance(object) {
+  tmpMatrix.makeScale(0, 0, 0);
+  object.instanceMesh.setMatrixAt(object.instanceIndex, tmpMatrix);
+  object.instanceMesh.instanceMatrix.needsUpdate = true;
+}
+
+function createBlackHole(object) {
+  const p = object.body.GetPosition();
+  const x = p.GetX();
+  const y = Math.max(0.7, p.GetY());
+  const z = p.GetZ();
+
+  object.position.set(x, y, z);
+  state.bodyInterface.RemoveBody(object.id);
+  object.exploded = true;
+  object.fuse = 0;
+  hideObjectInstance(object);
+  spawnBlackHole(x, y, z);
 }
 
 function explodeBall(object) {
@@ -1521,13 +1737,99 @@ function explodeBall(object) {
   state.bodyInterface.RemoveBody(object.id);
   object.exploded = true;
   object.fuse = 0;
-
-  tmpMatrix.makeScale(0, 0, 0);
-  object.instanceMesh.setMatrixAt(object.instanceIndex, tmpMatrix);
-  object.instanceMesh.instanceMatrix.needsUpdate = true;
+  hideObjectInstance(object);
 
   applyBlast(x, y, z);
   spawnExplosion(x, y, z);
+}
+
+function absorbObject(object) {
+  if (object.absorbed || object.exploded) return;
+
+  state.bodyInterface.RemoveBody(object.id);
+  object.absorbed = true;
+  object.fuse = 0;
+
+  const index = state.armed.indexOf(object);
+  if (index !== -1) state.armed.splice(index, 1);
+
+  hideObjectInstance(object);
+}
+
+function updateBlackHoles(dt) {
+  for (const hole of state.blackHoles) {
+    if (!hole.active) continue;
+
+    hole.age += dt;
+    if (hole.age >= hole.duration) {
+      deactivateBlackHole(hole);
+      continue;
+    }
+
+    const fade =
+      Math.min(hole.age / 0.35, 1) *
+      Math.min((hole.duration - hole.age) / 0.5, 1);
+    const strength = BLACKHOLE_PULL * fade;
+    const radiusSq = hole.radius * hole.radius;
+    const absorbRadiusSq = BLACKHOLE_ABSORB_RADIUS * BLACKHOLE_ABSORB_RADIUS;
+    hole.absorbBudget = Math.min(
+      1,
+      hole.absorbBudget + dt * BLACKHOLE_ABSORB_RATE
+    );
+
+    for (const object of state.objects) {
+      if (object.exploded || object.absorbed || object === state.held) continue;
+
+      const p = object.body.GetPosition();
+      const dx = hole.position.x - p.GetX();
+      const dy = hole.position.y - p.GetY();
+      const dz = hole.position.z - p.GetZ();
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+
+      if (distanceSq > radiusSq) continue;
+      if (distanceSq < absorbRadiusSq) {
+        if (hole.absorbBudget >= 1) {
+          absorbObject(object);
+          hole.absorbBudget -= 1;
+        }
+        continue;
+      }
+
+      const inverseMass = object.body.GetMotionProperties().GetInverseMass();
+      if (inverseMass <= 0) continue;
+
+      const distance = Math.sqrt(distanceSq) || 0.0001;
+      const falloff = 1 - distance / hole.radius;
+      const pull = strength * (0.35 + 0.65 * falloff);
+      const nx = dx / distance;
+      const ny = dy / distance;
+      const nz = dz / distance;
+
+      const horizontal = Math.hypot(dx, dz);
+      let tx = 0;
+      let tz = 0;
+      if (horizontal > 0.001) {
+        tx = -dz / horizontal;
+        tz = dx / horizontal;
+      }
+
+      const swirl = BLACKHOLE_SWIRL * falloff * fade;
+      const targetX = nx * pull + tx * swirl;
+      const targetY = ny * pull + 1.2 * falloff;
+      const targetZ = nz * pull + tz * swirl;
+      const mass = 1 / inverseMass;
+      const blend = 0.2;
+      const velocity = state.bodyInterface.GetLinearVelocity(object.id);
+
+      state.tmpVec3.Set(
+        (targetX - velocity.GetX()) * mass * blend,
+        (targetY - velocity.GetY()) * mass * blend,
+        (targetZ - velocity.GetZ()) * mass * blend
+      );
+      state.bodyInterface.AddImpulse(object.id, state.tmpVec3);
+      state.bodyInterface.ActivateBody(object.id);
+    }
+  }
 }
 
 function applyBlast(x, y, z) {
@@ -1535,7 +1837,7 @@ function applyBlast(x, y, z) {
   const impulse = state.tmpVec3;
 
   for (const object of state.objects) {
-    if (object.exploded || object === state.held) continue;
+    if (object.exploded || object.absorbed || object === state.held) continue;
 
     const dx = object.position.x - x;
     const dy = object.position.y - y;
@@ -1741,11 +2043,13 @@ function resetWorld() {
 
   state.armed.length = 0;
   resetExplosionFx();
+  resetBlackHoleFx();
 
   for (const object of state.objects) {
-    if (object.exploded) {
+    if (object.exploded || object.absorbed) {
       state.bodyInterface.AddBody(object.id, J.EActivation_Activate);
       object.exploded = false;
+      object.absorbed = false;
     }
 
     state.tmpRVec3.Set(
@@ -1797,7 +2101,9 @@ function updateHighlight() {
     setHint(
       state.held.type === "sphere"
         ? "ШАР · ЛКМ — бросить со взрывом · E — отпустить"
-        : "ЛКМ — бросить · E — отпустить",
+        : state.held.type === "box"
+          ? "КУБ · ЛКМ — бросить, создаёт чёрную дыру · E — отпустить"
+          : "ЛКМ — бросить · E — отпустить",
       true
     );
     return;
@@ -1842,7 +2148,7 @@ function setHighlighted(object) {
 
 function syncMeshes() {
   for (const object of state.objects) {
-    if (object.exploded) continue;
+    if (object.exploded || object.absorbed) continue;
 
     const p = object.body.GetPosition();
     const q = object.body.GetRotation();
@@ -1931,6 +2237,7 @@ function fixedUpdate() {
   updatePlayer(FIXED_DT);
   updateHeld(FIXED_DT);
   updateArmed(FIXED_DT);
+  updateBlackHoles(FIXED_DT);
   state.jolt.Step(FIXED_DT, 1);
 }
 
@@ -1956,6 +2263,7 @@ function animate() {
   syncMeshes();
   animateLimbs(Math.min(dt, 0.05));
   updateExplosionFx(Math.min(dt, 0.05));
+  updateBlackHoleFx(Math.min(dt, 0.05));
   updateCamera(dt);
   updateHighlight();
   const afterUpdate = performance.now();
