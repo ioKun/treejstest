@@ -69,6 +69,7 @@ export function computeGroundStrips() {
 
   const northLength = half - (pz + hz);
   const southLength = pz - hz + half;
+  const sideLength = 2 * hz;
 
   return [
     {
@@ -85,15 +86,15 @@ export function computeGroundStrips() {
     },
     {
       cx: -half + (half + px - hx) / 2,
-      cz: 0,
+      cz: pz,
       hx: (half + px - hx) / 2,
-      hz: half,
+      hz: sideLength / 2,
     },
     {
       cx: px + hx + (half - (px + hx)) / 2,
-      cz: 0,
+      cz: pz,
       hx: (half - (px + hx)) / 2,
-      hz: half,
+      hz: sideLength / 2,
     },
   ];
 }
