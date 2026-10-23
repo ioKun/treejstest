@@ -5,6 +5,7 @@ import { addSky, addLights, addGroundVisual } from "./environment.js";
 import { initShredderVisual } from "./shredder.js";
 import { addHighlightMesh } from "./highlight.js";
 import { initExplosionFx } from "../fx/explosion.js";
+import { initConfettiFx } from "../fx/confetti.js";
 import { initBlackHoleFx } from "../fx/blackhole.js";
 import { initPortalFx } from "../fx/portal.js";
 import { initTornadoFx } from "../fx/tornado.js";
@@ -41,6 +42,7 @@ export function initGraphics() {
   initShredderVisual();
   addHighlightMesh();
   initExplosionFx();
+  initConfettiFx();
   initBlackHoleFx();
   initPortalFx();
   initTornadoFx();

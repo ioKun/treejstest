@@ -5,6 +5,7 @@ import {
 } from "../constants.js";
 import { releaseStuckObjects } from "./capsule.js";
 import { resetExplosionFx } from "../fx/explosion.js";
+import { resetConfettiFx } from "../fx/confetti.js";
 import { resetBlackHoleFx } from "../fx/blackhole.js";
 import { resetPortalFx } from "../fx/portal.js";
 import { resetTornadoFx } from "../fx/tornado.js";
@@ -21,6 +22,7 @@ export function resetWorld() {
   state.armed.length = 0;
   state.removed = 0;
   resetExplosionFx();
+  resetConfettiFx();
   resetBlackHoleFx();
   resetPortalFx();
   resetTornadoFx();

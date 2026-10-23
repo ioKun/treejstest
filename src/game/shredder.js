@@ -15,12 +15,13 @@ import {
   SHRED_FUNNEL_SINK,
   SHRED_FUNNEL_STEER,
   SHRED_PLAYER_ESCAPE_DEPTH,
-  SHRED_SPARK_HEIGHT,
 } from "../constants.js";
 import { setBodyVelocity } from "../physics/helpers.js";
 import { absorbObject } from "./projectiles.js";
-import { spawnExplosion } from "../fx/explosion.js";
+import { burstShredConfetti } from "../fx/confetti.js";
 import { respawnPlayer } from "./player.js";
+
+const confettiColor = new THREE.Color();
 
 function insidePit(x, z) {
   const dx = x - PIT_CENTER_X;
@@ -41,7 +42,8 @@ export function updateShredder(dt) {
 
     const dz = z - PIT_CENTER_Z;
     if (y <= SHRED_REMOVE_DEPTH || Math.abs(dz) <= SHRED_ABSORB_GAP_Z) {
-      spawnExplosion(x, SHRED_SPARK_HEIGHT, z);
+      object.instanceMesh.getColorAt(object.instanceIndex, confettiColor);
+      burstShredConfetti(x, z, confettiColor.getHex());
       absorbObject(object);
       continue;
     }

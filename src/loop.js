@@ -17,6 +17,7 @@ import { updateShredderVisual } from "./graphics/shredder.js";
 import { animateLimbs } from "./graphics/stickman.js";
 import { updateCamera } from "./graphics/renderer.js";
 import { updateExplosionFx } from "./fx/explosion.js";
+import { updateConfettiFx } from "./fx/confetti.js";
 import { updateBlackHoleFx } from "./fx/blackhole.js";
 import { updateTornadoFx } from "./fx/tornado.js";
 import { updatePortalFx } from "./fx/portal.js";
@@ -105,6 +106,7 @@ export function animate() {
   syncMeshes();
   animateLimbs(fxDt);
   updateExplosionFx(fxDt);
+  updateConfettiFx(fxDt);
   updateBlackHoleFx(fxDt);
   updateTornadoFx(fxDt);
   updatePortalFx(fxDt);
