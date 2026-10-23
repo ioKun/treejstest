@@ -81,3 +81,27 @@ export const TORNADO_PARTICLES = 80;
 export const TORNADO_VELOCITY_BLEND = 0.16;
 
 export const GROUND_EDGE_MARGIN = 0.5;
+
+export const PIT_CENTER_X = 18;
+export const PIT_CENTER_Z = -18;
+export const PIT_HALF_X = 1.4;
+export const PIT_HALF_Z = 1.4;
+export const PIT_WALL_THICKNESS = 0.28;
+export const PIT_DEPTH = 2.2;
+
+export const SHREDDER_SHAFT_AXIS_Y = -1.25;
+export const SHREDDER_SHAFT_OFFSET_Z = 0.4;
+export const SHREDDER_DISC_RADIUS = 0.32;
+export const SHREDDER_DISC_HALF_HEIGHT = 0.07;
+export const SHREDDER_DISC_PITCH = 0.4;
+export const SHREDDER_DISC_COUNT = 5;
+export const SHREDDER_DISC_FRICTION = 0.8;
+export const SHREDDER_OMEGA = 4.2;
+export const SHRED_TRIGGER_DEPTH = -0.55;
+export const SHRED_REMOVE_DEPTH = -1.7;
+export const SHRED_ABSORB_GAP_Z = 0.2;
+export const SHRED_FUNNEL_BLEND = 10;
+export const SHRED_FUNNEL_SINK = -3.2;
+export const SHRED_FUNNEL_STEER = 2.6;
+export const SHRED_PLAYER_ESCAPE_DEPTH = -0.25;
+export const SHRED_SPARK_HEIGHT = -1.2;

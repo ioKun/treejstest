@@ -21,6 +21,7 @@ export const state = {
   armed: [],
   held: null,
   highlighted: null,
+  shredder: { shafts: [] },
   removed: 0,
   removedShown: -1,
   totalObjects: 0,

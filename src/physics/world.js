@@ -6,6 +6,10 @@ import {
   GROUND_HALF_SIZE,
   LAYER_NON_MOVING,
   LAYER_MOVING,
+  PIT_CENTER_X,
+  PIT_CENTER_Z,
+  PIT_HALF_X,
+  PIT_HALF_Z,
   PLAYER_SPAWN_Y,
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
@@ -27,27 +31,71 @@ import { TYPE_CONFIG } from "../graphics/objectAssets.js";
 
 export function buildGroundPhysics() {
   const J = state.J;
-  const shape = new J.BoxShape(
-    new J.Vec3(GROUND_HALF_SIZE, 0.5, GROUND_HALF_SIZE),
-    0.02
-  );
-  const position = new J.RVec3(0, -0.5, 0);
-  const rotation = new J.Quat(0, 0, 0, 1);
-  const settings = new J.BodyCreationSettings(
-    shape,
-    position,
-    rotation,
-    J.EMotionType_Static,
-    LAYER_NON_MOVING
-  );
-  settings.mFriction = 0.9;
-  settings.mRestitution = 0;
+  const side = GROUND_HALF_SIZE;
 
-  const body = state.bodyInterface.CreateBody(settings);
-  J.destroy(settings);
-  J.destroy(position);
-  J.destroy(rotation);
-  state.bodyInterface.AddBody(body.GetID(), J.EActivation_Activate);
+  const strips = computeGroundStrips();
+
+  for (const strip of strips) {
+    const shape = new J.BoxShape(
+      new J.Vec3(strip.hx, 0.5, strip.hz),
+      0.02
+    );
+    const position = new J.RVec3(strip.cx, -0.5, strip.cz);
+    const rotation = new J.Quat(0, 0, 0, 1);
+    const settings = new J.BodyCreationSettings(
+      shape,
+      position,
+      rotation,
+      J.EMotionType_Static,
+      LAYER_NON_MOVING
+    );
+    settings.mFriction = 0.9;
+    settings.mRestitution = 0;
+
+    const body = state.bodyInterface.CreateBody(settings);
+    J.destroy(settings);
+    J.destroy(position);
+    J.destroy(rotation);
+    state.bodyInterface.AddBody(body.GetID(), J.EActivation_Activate);
+  }
+}
+
+export function computeGroundStrips() {
+  const half = GROUND_HALF_SIZE;
+  const px = PIT_CENTER_X;
+  const pz = PIT_CENTER_Z;
+  const hx = PIT_HALF_X;
+  const hz = PIT_HALF_Z;
+
+  const northLength = half - (pz + hz);
+  const southLength = pz - hz + half;
+
+  return [
+    {
+      cx: 0,
+      cz: pz + hz + northLength / 2,
+      hx: half,
+      hz: northLength / 2,
+    },
+    {
+      cx: 0,
+      cz: -half + southLength / 2,
+      hx: half,
+      hz: southLength / 2,
+    },
+    {
+      cx: -half + (half + px - hx) / 2,
+      cz: 0,
+      hx: (half + px - hx) / 2,
+      hz: half,
+    },
+    {
+      cx: px + hx + (half - (px + hx)) / 2,
+      cz: 0,
+      hx: (half - (px + hx)) / 2,
+      hz: half,
+    },
+  ];
 }
 
 export function createPlayerBody() {

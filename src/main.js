@@ -8,6 +8,7 @@ import {
   spawnObjects,
   settlePile,
 } from "./physics/world.js";
+import { buildShredderPhysics } from "./physics/shredder.js";
 import { readPlayerState } from "./physics/helpers.js";
 import { buildStickman } from "./graphics/stickman.js";
 import { setupInput } from "./input/index.js";
@@ -40,6 +41,7 @@ async function boot() {
 
   loaderText.textContent = "Сборка мира…";
   buildGroundPhysics();
+  buildShredderPhysics();
   buildStickman();
   createPlayerBody();
   spawnObjects();

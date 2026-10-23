@@ -11,6 +11,9 @@ import {
   updatePortals,
 } from "./game/projectiles.js";
 import { updateStickyCapsules } from "./game/capsule.js";
+import { updateShredder } from "./game/shredder.js";
+import { updateShredderShafts } from "./physics/shredder.js";
+import { updateShredderVisual } from "./graphics/shredder.js";
 import { animateLimbs } from "./graphics/stickman.js";
 import { updateCamera } from "./graphics/renderer.js";
 import { updateExplosionFx } from "./fx/explosion.js";
@@ -76,6 +79,8 @@ function fixedUpdate() {
   updateBlackHoles(FIXED_DT);
   updateTornadoes(FIXED_DT);
   updatePortals(FIXED_DT);
+  updateShredder(FIXED_DT);
+  updateShredderShafts();
   state.jolt.Step(FIXED_DT, 1);
   updateStickyCapsules();
 }
@@ -103,6 +108,7 @@ export function animate() {
   updateBlackHoleFx(fxDt);
   updateTornadoFx(fxDt);
   updatePortalFx(fxDt);
+  updateShredderVisual(fxDt);
   updateCamera();
   updateHighlight();
 

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { engine } from "../engine.js";
 import { state } from "../state.js";
 import { GROUND_HALF_SIZE } from "../constants.js";
+import { computeGroundStrips } from "../physics/world.js";
 
 function makeSkyTexture() {
   const width = 1024;
@@ -266,11 +267,13 @@ export function addGroundVisual() {
     color: 0xffffff,
   });
 
-  const ground = new THREE.Mesh(
-    new THREE.BoxGeometry(GROUND_HALF_SIZE * 2, 1, GROUND_HALF_SIZE * 2),
-    material
-  );
-  ground.position.y = -0.5;
-  ground.receiveShadow = true;
-  engine.scene.add(ground);
+  for (const strip of computeGroundStrips()) {
+    const ground = new THREE.Mesh(
+      new THREE.BoxGeometry(strip.hx * 2, 1, strip.hz * 2),
+      material
+    );
+    ground.position.set(strip.cx, -0.5, strip.cz);
+    ground.receiveShadow = true;
+    engine.scene.add(ground);
+  }
 }

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { engine } from "../engine.js";
 import { state, playerPos, cameraPoint } from "../state.js";
 import { addSky, addLights, addGroundVisual } from "./environment.js";
+import { initShredderVisual } from "./shredder.js";
 import { addHighlightMesh } from "./highlight.js";
 import { initExplosionFx } from "../fx/explosion.js";
 import { initBlackHoleFx } from "../fx/blackhole.js";
@@ -37,6 +38,7 @@ export function initGraphics() {
   addSky();
   addLights();
   addGroundVisual();
+  initShredderVisual();
   addHighlightMesh();
   initExplosionFx();
   initBlackHoleFx();
