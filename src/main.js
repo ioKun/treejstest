@@ -1,6 +1,7 @@
 import "./style.css";
 import { state } from "./state.js";
 import { initGraphics, updateCamera } from "./graphics/renderer.js";
+import { engine } from "./engine.js";
 import { initPhysics } from "./physics/jolt.js";
 import {
   buildGroundPhysics,
@@ -11,11 +12,14 @@ import {
 import { buildShredderPhysics } from "./physics/shredder.js";
 import { readPlayerState } from "./physics/helpers.js";
 import { buildStickman } from "./graphics/stickman.js";
+import { initUfoVisual } from "./graphics/ufo.js";
 import { setupInput } from "./input/index.js";
 import { syncMeshes, restartClock, animate } from "./loop.js";
 import { updateStats, updateRemovedCounter } from "./ui/hud.js";
 import { tryGrab, throwHeld, dropHeld } from "./game/grab.js";
 import { resetWorld } from "./game/reset.js";
+import { rebuildWorldObjects } from "./game/objectCount.js";
+import { initMenu } from "./ui/menu.js";
 
 async function boot() {
   const loader = document.getElementById("loader");
@@ -43,6 +47,7 @@ async function boot() {
   buildGroundPhysics();
   buildShredderPhysics();
   buildStickman();
+  initUfoVisual(engine.scene);
   createPlayerBody();
   spawnObjects();
   state.totalObjects = state.objects.length;
@@ -59,12 +64,19 @@ async function boot() {
 
   if (import.meta.env.DEV) {
     window.__game = state;
-    window.__gameApi = { tryGrab, throwHeld, dropHeld, resetWorld };
+    window.__gameApi = {
+      tryGrab,
+      throwHeld,
+      dropHeld,
+      resetWorld,
+      setObjectCount: rebuildWorldObjects,
+    };
   }
+
+  initMenu();
 
   loaderText.textContent = "Готово";
   requestAnimationFrame(() => loader.classList.add("hidden"));
-  setTimeout(() => loader.remove(), 700);
 
   restartClock();
   requestAnimationFrame(animate);

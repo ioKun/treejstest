@@ -32,10 +32,32 @@ export const PILE_LAYER_HEIGHT = 0.9;
 export const PILE_CELL = 1.16;
 export const PILE_JITTER = 0.04;
 
+export const PILE_DENSE_THRESHOLD = 2000;
+export const PILE_DENSE_RADIUS = 15;
+export const PILE_DENSE_COLUMN_CELL = 0.9;
+export const PILE_DENSE_COLUMN_HEIGHT = 1.6;
+export const PILE_DENSE_COLUMN_JITTER = 0.25;
+
+export const SETTLE_WAVE_STEPS = 18;
+export const OBJECT_FLOOR_RESET_DEPTH = -0.9;
+export const OBJECT_RESURFACE_Y = 0.55;
+
 export const SETTLE_MAX_STEPS = 240;
 export const SETTLE_CHECK_INTERVAL = 60;
 export const SETTLE_ACTIVE_SPEED = 0.4;
 export const SETTLE_ACTIVE_LIMIT = 30;
+
+export const OBJECT_COUNT_DEFAULT = 1000;
+export const OBJECT_COUNT_SETTLE_BIG_THRESHOLD = 4000;
+export const SETTLE_MAX_STEPS_BIG = 220;
+export const SETTLE_TAIL_STEPS = 150;
+
+export const FLOOR_GUARD_INTERVAL = 0.6;
+export const FLOOR_GUARD_DEPTH = -1.5;
+export const FLOOR_GUARD_PLAYER_DEPTH = -1.4;
+export const MAX_BODIES_CAPACITY = 10600;
+export const MAX_BODY_PAIRS = 65536;
+export const MAX_CONTACT_CONSTRAINTS = 16384;
 
 export const PLAYER_MOVE_GROUND_CONTROL = 16;
 export const PLAYER_MOVE_AIR_CONTROL = 4.5;
@@ -122,3 +144,11 @@ export const CONFETTI_FADE_TAIL = 0.32;
 export const CONFETTI_SCALE_MIN = 0.7;
 export const CONFETTI_SCALE_MAX = 1.25;
 export const CONFETTI_ORIGIN_Y = -0.5;
+
+export const UFO_HEIGHT = 22;
+export const UFO_SPREAD_RADIUS = 1.4;
+export const UFO_TUBE_RADIUS = 1.6;
+export const UFO_TUBE_HEIGHT = 12;
+export const UFO_RELEASE_RATE = 1200;
+export const UFO_DROP_SPEED = 1.5;
+export const UFO_VISUAL_Y = 16;

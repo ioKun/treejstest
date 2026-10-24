@@ -5,6 +5,9 @@ import {
   LAYER_PORTAL,
   LAYER_STUCK,
   NUM_LAYERS,
+  MAX_BODIES_CAPACITY,
+  MAX_BODY_PAIRS,
+  MAX_CONTACT_CONSTRAINTS,
 } from "../constants.js";
 
 export async function initPhysics() {
@@ -44,9 +47,9 @@ export async function initPhysics() {
   );
 
   const settings = new J.JoltSettings();
-  settings.mMaxBodies = 2048;
-  settings.mMaxBodyPairs = 8192;
-  settings.mMaxContactConstraints = 8192;
+  settings.mMaxBodies = MAX_BODIES_CAPACITY;
+  settings.mMaxBodyPairs = MAX_BODY_PAIRS;
+  settings.mMaxContactConstraints = MAX_CONTACT_CONSTRAINTS;
   state.workerThreads = Math.max(
     1,
     Math.min((navigator.hardwareConcurrency || 4) - 1, 8)

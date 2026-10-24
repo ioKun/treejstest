@@ -11,11 +11,14 @@ import {
   updatePortals,
 } from "./game/projectiles.js";
 import { updateStickyCapsules } from "./game/capsule.js";
+import { updateFloorGuard } from "./game/floorGuard.js";
+import { updateUfo } from "./game/ufo.js";
 import { updateShredder } from "./game/shredder.js";
 import { updateShredderShafts } from "./physics/shredder.js";
 import { updateShredderVisual } from "./graphics/shredder.js";
 import { animateLimbs } from "./graphics/stickman.js";
 import { updateCamera } from "./graphics/renderer.js";
+import { updateUfoVisual } from "./graphics/ufo.js";
 import { updateExplosionFx } from "./fx/explosion.js";
 import { updateConfettiFx } from "./fx/confetti.js";
 import { updateBlackHoleFx } from "./fx/blackhole.js";
@@ -84,12 +87,22 @@ function fixedUpdate() {
   updateShredderShafts();
   state.jolt.Step(FIXED_DT, 1);
   updateStickyCapsules();
+  updateFloorGuard(FIXED_DT);
+  updateUfo(FIXED_DT);
 }
 
 export function animate() {
   requestAnimationFrame(animate);
   clock.update();
   const dt = Math.min(clock.getDelta(), 0.1);
+
+  if (state.paused) {
+  updateCamera();
+  updateUfoVisual(dt);
+  engine.renderer.render(engine.scene, engine.camera);
+    return;
+  }
+
   accumulator += dt;
 
   let steps = 0;
@@ -112,6 +125,7 @@ export function animate() {
   updatePortalFx(fxDt);
   updateShredderVisual(fxDt);
   updateCamera();
+  updateUfoVisual(dt);
   updateHighlight();
 
   if (state.skyTexture) {

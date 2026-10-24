@@ -89,4 +89,20 @@ export function resetWorld() {
   }
 
   respawnPlayer();
+
+  if (state.spawnMode === "ufo" && state.objects.length) {
+    for (const object of state.objects) {
+      if (object.exploded || object.absorbed) {
+        state.bodyInterface.AddBody(object.id, state.J.EActivation_DontActivate);
+        object.exploded = false;
+        object.absorbed = false;
+      }
+      state.bodyInterface.SetObjectLayer(object.id, LAYER_MOVING);
+      object.spawnPosition.set(object.position.x, object.position.y, object.position.z);
+    }
+    state.ufoQueue = state.objects.slice();
+    state.ufoReleased = 0;
+    state.ufoTimer = 0;
+    state.ufoActive = true;
+  }
 }

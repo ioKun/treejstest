@@ -33,7 +33,7 @@ function hideObjectInstance(object) {
   object.instanceMesh.instanceMatrix.needsUpdate = true;
 }
 
-function vanishObject(object, x, y, z) {
+export function vanishObject(object, x, y, z) {
   object.position.set(x, y, z);
   state.bodyInterface.RemoveBody(object.id);
   object.exploded = true;

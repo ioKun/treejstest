@@ -30,6 +30,7 @@
         Джойстик — движение · полный наклон — бег · свайп — камера
       </div>
       <div id="stats"></div>
+      <div class="menu-tip">ESC — меню</div>
     </div>
 
     <div id="removed-counter">
@@ -58,6 +59,15 @@
           <span class="touch-label">ПРЫЖОК</span>
         </button>
         <button
+          id="touch-menu"
+          class="touch-button touch-button-secondary"
+          type="button"
+          aria-label="Меню"
+        >
+          <span class="touch-icon">≡</span>
+          <span class="touch-label">МЕНЮ</span>
+        </button>
+        <button
           id="touch-reset"
           class="touch-button touch-button-secondary"
           type="button"
@@ -66,6 +76,37 @@
           <span class="touch-icon">R</span>
           <span class="touch-label">СБРОС</span>
         </button>
+      </div>
+    </div>
+
+    <div id="menu">
+      <div id="menu-panel">
+        <div class="menu-title">МЕНЮ</div>
+        <div class="menu-row">
+          <label for="object-count">ПРЕДМЕТЫ</label>
+          <select id="object-count" aria-label="Количество предметов">
+            <option value="1000">1000</option>
+            <option value="3000">3000</option>
+            <option value="5000">5000</option>
+            <option value="10000">10000</option>
+          </select>
+        </div>
+        <div class="menu-row">
+          <label for="spawn-mode">СТАРТ</label>
+          <select id="spawn-mode" aria-label="Режим старта предметов">
+            <option value="pile">Куча (сразу)</option>
+            <option value="ufo">НЛО (дождь)</option>
+          </select>
+        </div>
+        <div class="menu-actions">
+          <button id="menu-resume" class="menu-button" type="button">
+            ПРОДОЛЖИТЬ
+          </button>
+          <button id="menu-reset" class="menu-button menu-button-secondary" type="button">
+            СБРОС МИРА
+          </button>
+        </div>
+        <div class="menu-hint">ESC — закрыть</div>
       </div>
     </div>
 

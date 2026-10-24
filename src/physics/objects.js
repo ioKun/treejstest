@@ -107,7 +107,7 @@ const SHAPE_FACTORIES = {
   },
 };
 
-export function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY) {
+export function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY, deferActivate = false) {
   const J = state.J;
   const yaw = Math.random() * Math.PI * 2;
   const built = SHAPE_FACTORIES[type](J);
@@ -158,7 +158,10 @@ export function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBa
   J.destroy(rotation);
 
   const id = body.GetID();
-  state.bodyInterface.AddBody(id, J.EActivation_Activate);
+  state.bodyInterface.AddBody(
+    id,
+    deferActivate ? J.EActivation_DontActivate : J.EActivation_Activate
+  );
 
   if (type === "capsule") shape.AddRef();
 
@@ -199,4 +202,5 @@ export function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBa
   tmpMatrix.compose(spawnPosition, spawnRotation, built.scale);
   mesh.setMatrixAt(index, tmpMatrix);
   mesh.setColorAt(index, tmpColor.setHex(palette[index % palette.length]));
+  return object;
 }
