@@ -145,6 +145,9 @@ export const CONFETTI_SCALE_MIN = 0.7;
 export const CONFETTI_SCALE_MAX = 1.25;
 export const CONFETTI_ORIGIN_Y = -0.5;
 
+export const LEADERBOARD_KEY = "stickman_leaderboard_v1";
+export const LEADERBOARD_SIZE = 10;
+
 export const UFO_HEIGHT = 22;
 export const UFO_SPREAD_RADIUS = 1.4;
 export const UFO_TUBE_RADIUS = 1.6;

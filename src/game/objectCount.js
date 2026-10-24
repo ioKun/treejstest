@@ -60,4 +60,5 @@ export function rebuildWorldObjects(totalCount) {
   respawnPlayer();
   updateStats();
   updateRemovedCounter(true);
+  state.levelStartTime = performance.now();
 }

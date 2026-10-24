@@ -90,6 +90,10 @@ export function resetWorld() {
 
   respawnPlayer();
 
+  state.victory = false;
+  const victoryEl = document.getElementById("victory");
+  if (victoryEl) victoryEl.classList.remove("open");
+
   if (state.spawnMode === "ufo" && state.objects.length) {
     for (const object of state.objects) {
       if (object.exploded || object.absorbed) {

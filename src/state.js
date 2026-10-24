@@ -13,6 +13,8 @@ export const state = {
   objects: [],
   instances: {},
   paused: false,
+  victory: false,
+  levelStartTime: 0,
   highlightMesh: null,
   fx: null,
   blackHoles: [],

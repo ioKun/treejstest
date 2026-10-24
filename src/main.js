@@ -20,6 +20,7 @@ import { tryGrab, throwHeld, dropHeld } from "./game/grab.js";
 import { resetWorld } from "./game/reset.js";
 import { rebuildWorldObjects } from "./game/objectCount.js";
 import { initMenu } from "./ui/menu.js";
+import { initVictory } from "./ui/victory.js";
 
 async function boot() {
   const loader = document.getElementById("loader");
@@ -61,6 +62,7 @@ async function boot() {
   updateCamera();
   updateStats();
   updateRemovedCounter(true);
+  state.levelStartTime = performance.now();
 
   if (import.meta.env.DEV) {
     window.__game = state;
@@ -74,6 +76,7 @@ async function boot() {
   }
 
   initMenu();
+  initVictory();
 
   loaderText.textContent = "Готово";
   requestAnimationFrame(() => loader.classList.add("hidden"));

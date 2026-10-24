@@ -25,6 +25,7 @@ export function initMenu() {
   }
 
   function toggleMenu() {
+    if (state.victory) return;
     if (loader && !loader.classList.contains("hidden")) return;
     setMenu(!menu.classList.contains("open"));
   }
@@ -71,6 +72,10 @@ export function initMenu() {
 
   resetButton.addEventListener("click", () => {
     resetWorld();
+    state.victory = false;
+    state.levelStartTime = performance.now();
+    const victoryEl = document.getElementById("victory");
+    if (victoryEl) victoryEl.classList.remove("open");
     setMenu(false);
   });
 
