@@ -101,17 +101,35 @@
         <div class="menu-section">
           <div class="menu-section-title">МУЛЬТИПЛЕЕР</div>
           <div class="menu-row">
+            <label for="mp-mode">РЕЖИМ</label>
+            <select id="mp-mode">
+              <option value="manual" selected>Ручной (без сервера)</option>
+              <option value="peerjs">PeerJS (нужен интернет)</option>
+            </select>
+          </div>
+          <div class="menu-hint">Ручной режим не требует сервера. PeerJS может быть недоступен без VPN.</div>
+          <div class="menu-row">
             <label for="mp-name">ИМЯ</label>
             <input id="mp-name" type="text" value="Игрок" />
           </div>
           <div class="menu-row">
-            <label for="mp-room">КОД КОМНАТЫ</label>
-            <input id="mp-room" type="text" placeholder="код хоста" />
+            <label for="mp-room">ССЫЛКА / КОД</label>
+            <input id="mp-room" type="text" placeholder="ссылка или код хоста" />
           </div>
           <div class="menu-actions">
-            <button id="mp-create" class="menu-button" type="button">СОЗДАТЬ КОМНАТУ</button>
+            <button id="mp-create" class="menu-button" type="button">СОЗДАТЬ ССЫЛКУ</button>
             <button id="mp-join" class="menu-button menu-button-secondary" type="button">ВОЙТИ</button>
             <button id="mp-leave" class="menu-button menu-button-secondary" type="button">ВЫЙТИ</button>
+          </div>
+          <div id="mp-manual-host" class="menu-row" style="display:none">
+            <label for="mp-answer">ОТВЕТ</label>
+            <input id="mp-answer" type="text" placeholder="вставьте код от гостя" />
+            <button id="mp-answer-apply" class="menu-button menu-button-secondary" type="button">ПОДКЛЮЧИТЬ</button>
+          </div>
+          <div id="mp-manual-guest" class="menu-row" style="display:none">
+            <label for="mp-answer-code">КОД ОТВЕТА</label>
+            <input id="mp-answer-code" type="text" readonly placeholder="здесь появится код" />
+            <button id="mp-answer-copy" class="menu-button menu-button-secondary" type="button">КОПИРОВАТЬ</button>
           </div>
           <div id="mp-status" class="menu-hint">Не подключено</div>
           <div id="mp-link-row" class="menu-row" style="display:none">

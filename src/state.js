@@ -65,9 +65,13 @@ export const state = {
   zeroVec3: null,
   multiplayer: {
     role: "none",
+    mode: "manual",
     roomId: null,
     peerId: null,
     localName: "",
+    manualPc: null,
+    manualLink: "",
+    manualAnswer: "",
     peers: [],
     connected: false,
     error: null,

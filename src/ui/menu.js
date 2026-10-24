@@ -1,7 +1,15 @@
 import { state } from "../state.js";
 import { rebuildWorldObjects } from "../game/objectCount.js";
 import { resetWorld } from "../game/reset.js";
-import { createRoom, joinRoom, leaveRoom, getRoomLink, autoJoinFromUrl } from "../network/index.js";
+import {
+  createRoom,
+  joinRoom,
+  leaveRoom,
+  getRoomLink,
+  createManualRoom,
+  joinManualRoom,
+  applyManualAnswerToken,
+} from "../network/index.js";
 
 const LOADER_REBUILD_TEXT = "Пересборка уровня…";
 
@@ -100,6 +108,7 @@ export function initMenu() {
     });
   }
 
+  const mpMode = document.getElementById("mp-mode");
   const mpName = document.getElementById("mp-name");
   const mpRoom = document.getElementById("mp-room");
   const mpCreate = document.getElementById("mp-create");
@@ -110,42 +119,117 @@ export function initMenu() {
   const mpLinkRow = document.getElementById("mp-link-row");
   const mpLink = document.getElementById("mp-link");
   const mpCopy = document.getElementById("mp-copy");
-  const roomFromUrl = new URLSearchParams(window.location.search).get("room");
+  const manualHostRow = document.getElementById("mp-manual-host");
+  const manualGuestRow = document.getElementById("mp-manual-guest");
+  const mpAnswer = document.getElementById("mp-answer");
+  const mpAnswerApply = document.getElementById("mp-answer-apply");
+  const mpAnswerCode = document.getElementById("mp-answer-code");
+  const mpAnswerCopy = document.getElementById("mp-answer-copy");
+  const params = new URLSearchParams(window.location.search);
+  const roomFromUrl = params.get("room");
   if (roomFromUrl && mpRoom) mpRoom.value = roomFromUrl;
+  const manualFromUrl = params.get("manual");
+  if (manualFromUrl && mpRoom) mpRoom.value = manualFromUrl;
+  const storedMode = localStorage.getItem("mp_mode");
+  if (mpMode) mpMode.value = manualFromUrl ? "manual" : storedMode || "manual";
+
+  function currentMode() {
+    return mpMode ? mpMode.value : "manual";
+  }
+
+  function updateModeUi() {
+    const manual = currentMode() === "manual";
+    if (mpCreate) mpCreate.textContent = manual ? "СОЗДАТЬ ССЫЛКУ" : "СОЗДАТЬ КОМНАТУ";
+    if (mpRoom) mpRoom.placeholder = manual ? "ссылка или код приглашения" : "код комнаты";
+  }
 
   function refreshMultiplayerStatus() {
     const mp = state.multiplayer;
     if (mpStatus) {
       if (mp.error) mpStatus.textContent = `Ошибка: ${mp.error}`;
-      else if (mp.role === "host") mpStatus.textContent = `Хост · код: ${mp.roomId}`;
-      else if (mp.role === "client") mpStatus.textContent = `Клиент · комната: ${mp.roomId}`;
-      else mpStatus.textContent = "Не подключено";
+      else if (mp.role === "host" && mp.mode === "manual") {
+        mpStatus.textContent = mp.connected
+          ? "Ручной хост · подключено"
+          : "Ручной хост · отправьте ссылку и вставьте код ответа";
+      } else if (mp.role === "client" && mp.mode === "manual") {
+        mpStatus.textContent = mp.connected
+          ? "Ручное подключение · клиент"
+          : "Скопируйте код ответа и отправьте хосту";
+      } else if (mp.role === "host") {
+        mpStatus.textContent = `Хост · код: ${mp.roomId}`;
+      } else if (mp.role === "client") {
+        mpStatus.textContent = `Клиент · комната: ${mp.roomId}`;
+      } else {
+        mpStatus.textContent = "Не подключено";
+      }
     }
     if (mpPeers) {
       mpPeers.textContent = mp.peers.map((p) => p.name || p.id).join(", ");
     }
     if (mpLinkRow) {
-      if (mp.role === "host" && mp.roomId) {
-        mpLinkRow.style.display = "";
-        if (mpLink) mpLink.value = getRoomLink(mp.roomId);
-      } else {
-        mpLinkRow.style.display = "none";
+      const showLink = mp.role === "host" && (mp.manualLink || mp.roomId);
+      mpLinkRow.style.display = showLink ? "" : "none";
+      if (showLink && mpLink) {
+        mpLink.value = mp.mode === "manual" ? mp.manualLink : getRoomLink(mp.roomId);
       }
+    }
+    if (manualHostRow) {
+      manualHostRow.style.display =
+        mp.mode === "manual" && mp.role === "host" ? "" : "none";
+    }
+    if (manualGuestRow) {
+      manualGuestRow.style.display =
+        mp.mode === "manual" && mp.role === "client" ? "" : "none";
+    }
+    if (mpAnswerCode && mpAnswerCode.value !== (mp.manualAnswer || "")) {
+      mpAnswerCode.value = mp.manualAnswer || "";
     }
   }
 
   if (mpCreate) {
-    mpCreate.addEventListener("click", () => {
-      if (mpName) localStorage.setItem("mp_name", mpName.value || "Игрок");
-      createRoom(mpName ? mpName.value : "");
+    mpCreate.addEventListener("click", async () => {
+      const name = mpName ? mpName.value || "Игрок" : "Игрок";
+      localStorage.setItem("mp_name", name);
+      if (currentMode() === "manual") {
+        await createManualRoom(name);
+      } else {
+        createRoom(name);
+      }
       refreshMultiplayerStatus();
     });
   }
   if (mpJoin) {
-    mpJoin.addEventListener("click", () => {
-      if (mpName) localStorage.setItem("mp_name", mpName.value || "Игрок");
-      joinRoom(mpRoom ? mpRoom.value.trim() : "", mpName ? mpName.value : "");
+    mpJoin.addEventListener("click", async () => {
+      const name = mpName ? mpName.value || "Игрок" : "Игрок";
+      localStorage.setItem("mp_name", name);
+      const value = mpRoom ? mpRoom.value.trim() : "";
+      if (currentMode() === "manual") {
+        await joinManualRoom(value, name);
+      } else {
+        joinRoom(value, name);
+      }
       refreshMultiplayerStatus();
+    });
+  }
+  if (mpMode) {
+    mpMode.addEventListener("change", () => {
+      localStorage.setItem("mp_mode", mpMode.value);
+      updateModeUi();
+      refreshMultiplayerStatus();
+    });
+  }
+  if (mpAnswerApply) {
+    mpAnswerApply.addEventListener("click", async () => {
+      await applyManualAnswerToken(mpAnswer ? mpAnswer.value : "");
+      refreshMultiplayerStatus();
+    });
+  }
+  if (mpAnswerCopy) {
+    mpAnswerCopy.addEventListener("click", () => {
+      if (mpAnswerCode) {
+        mpAnswerCode.select();
+        try { navigator.clipboard.writeText(mpAnswerCode.value); } catch (e) {}
+      }
     });
   }
   if (mpCopy) {
@@ -162,6 +246,10 @@ export function initMenu() {
       refreshMultiplayerStatus();
     });
   }
+
+  updateModeUi();
+  refreshMultiplayerStatus();
+  if (manualFromUrl) setMenu(true);
 
   setInterval(refreshMultiplayerStatus, 1000);
 }
