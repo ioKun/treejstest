@@ -110,11 +110,14 @@ export function initMenu() {
   const mpLinkRow = document.getElementById("mp-link-row");
   const mpLink = document.getElementById("mp-link");
   const mpCopy = document.getElementById("mp-copy");
+  const roomFromUrl = new URLSearchParams(window.location.search).get("room");
+  if (roomFromUrl && mpRoom) mpRoom.value = roomFromUrl;
 
   function refreshMultiplayerStatus() {
     const mp = state.multiplayer;
     if (mpStatus) {
-      if (mp.role === "host") mpStatus.textContent = `Хост · код: ${mp.roomId}`;
+      if (mp.error) mpStatus.textContent = `Ошибка: ${mp.error}`;
+      else if (mp.role === "host") mpStatus.textContent = `Хост · код: ${mp.roomId}`;
       else if (mp.role === "client") mpStatus.textContent = `Клиент · комната: ${mp.roomId}`;
       else mpStatus.textContent = "Не подключено";
     }

@@ -1,12 +1,15 @@
 import Peer from "peerjs";
 import { state } from "../state.js";
-import { FIXED_DT } from "../constants.js";
+import { PLAYER_SPAWN_Y } from "../constants.js";
 import { updatePlayer } from "../game/player.js";
 import { showVictory } from "../ui/victory.js";
 import { applyRemoteEffect } from "../game/projectiles.js";
 import { createRemotePlayerBody } from "../physics/world.js";
-import { addRemotePlayerVisual, removeRemotePlayerVisual, updateRemotePlayerVisual } from "../graphics/remotePlayers.js";
-import { PLAYER_SPAWN_Y } from "../constants.js";
+import {
+  addRemotePlayerVisual,
+  removeRemotePlayerVisual,
+  updateRemotePlayerVisual,
+} from "../graphics/remotePlayers.js";
 
 const DEFAULT_NAME = "Игрок";
 
@@ -31,13 +34,14 @@ function setupConnection(conn, hostSide) {
   conn.on("open", () => {
     state.multiplayer.connections.set(conn.peer, conn);
     state.multiplayer.connected = true;
+    state.multiplayer.error = null;
     if (!hostSide) {
       conn.send({ type: "hello", name: state.multiplayer.localName || DEFAULT_NAME });
     }
   });
 
   conn.on("data", (data) => {
-    handleMessage(conn.peer, data, hostSide);
+    handleMessage(conn.peer, data);
   });
 
   conn.on("close", () => {
@@ -51,16 +55,18 @@ function setupConnection(conn, hostSide) {
   });
 }
 
-function handleMessage(from, data, hostSide) {
+function handleMessage(from, data) {
   if (!data || typeof data !== "object") return;
   switch (data.type) {
     case "hello":
       if (state.multiplayer.role === "host") {
         registerPeer(from, data.name || DEFAULT_NAME);
-        const body = createRemotePlayerBody();
-        state.multiplayer.remoteBodies.set(from, body);
-        state.multiplayer.remoteBodyIds.set(from, body.GetID());
-        state.multiplayer.inputs.set(from, null);
+        if (!state.multiplayer.remoteBodies.has(from)) {
+          const body = createRemotePlayerBody();
+          state.multiplayer.remoteBodies.set(from, body);
+          state.multiplayer.remoteBodyIds.set(from, body.GetID());
+          state.multiplayer.inputs.set(from, null);
+        }
         broadcast({ type: "peer-list", peers: state.multiplayer.peers });
       }
       break;
@@ -86,8 +92,6 @@ function handleMessage(from, data, hostSide) {
         } else {
           applyRemoteEffect(data);
         }
-      } else {
-        applyEvent(data);
       }
       break;
     case "victory":
@@ -97,9 +101,9 @@ function handleMessage(from, data, hostSide) {
 }
 
 function registerPeer(peerId, name) {
-  if (!state.multiplayer.peers.some((p) => p.id === peerId)) {
-    state.multiplayer.peers.push({ id: peerId, name, isHost: false });
-  }
+  const existing = state.multiplayer.peers.find((p) => p.id === peerId);
+  if (existing) existing.name = name;
+  else state.multiplayer.peers.push({ id: peerId, name, isHost: false });
   addRemotePlayerVisual(peerId);
 }
 
@@ -110,7 +114,9 @@ function removePeer(peerId) {
     const body = state.multiplayer.remoteBodies.get(peerId);
     if (body) {
       try {
-        state.bodyInterface.DestroyBody(body.GetID());
+        const id = body.GetID();
+        if (body.IsInBroadPhase()) state.bodyInterface.RemoveBody(id);
+        state.bodyInterface.DestroyBody(id);
       } catch (e) {}
     }
     state.multiplayer.remoteBodies.delete(peerId);
@@ -119,6 +125,9 @@ function removePeer(peerId) {
   }
   if (state.multiplayer.role === "host") {
     broadcast({ type: "peer-list", peers: state.multiplayer.peers });
+  } else if (state.multiplayer.role === "client" && state.multiplayer.connections.size === 0) {
+    state.multiplayer.connected = false;
+    state.multiplayer.error = "Соединение с хостом потеряно";
   }
 }
 
@@ -154,22 +163,16 @@ function applySnapshot(snapshot) {
 
 function reconcileLocalPlayer(player) {
   if (!state.playerBody) return;
-  const dx = player.x - (state.playerBody.GetPosition().GetX());
-  const dy = player.y - (state.playerBody.GetPosition().GetY());
-  const dz = player.z - (state.playerBody.GetPosition().GetZ());
+  const p = state.playerBody.GetPosition();
+  const dx = player.x - p.GetX();
+  const dy = player.y - p.GetY();
+  const dz = player.z - p.GetZ();
   if (Math.hypot(dx, dy, dz) > 2.5) {
     const J = state.J;
     state.tmpRVec3.Set(player.x, player.y, player.z);
     state.tmpQuat.Set(0, 0, Math.sin(player.yaw * 0.5), Math.cos(player.yaw * 0.5));
     state.bodyInterface.SetPositionAndRotation(state.playerId, state.tmpRVec3, state.tmpQuat, J.EActivation_Activate);
   }
-  state.yaw = player.yaw ?? state.yaw;
-  state.pitch = player.pitch ?? state.pitch;
-}
-
-function applyEvent(event) {
-  if (!event) return;
-  if (event.type === "victory") triggerVictory();
 }
 
 function triggerVictory() {
@@ -180,7 +183,9 @@ function triggerVictory() {
 }
 
 export function createRoom(name) {
+  leaveRoom();
   state.multiplayer.localName = name || DEFAULT_NAME;
+  state.multiplayer.error = null;
   const peer = new Peer();
   state.multiplayer.peer = peer;
   peer.on("open", (id) => {
@@ -192,26 +197,37 @@ export function createRoom(name) {
     state.multiplayer.remoteBodies = new Map();
     state.multiplayer.remoteBodyIds = new Map();
     state.multiplayer.inputs = new Map();
-    addRemotePlayerVisual(id);
-    try { updateMultiplayerStatus(); } catch (e) {}
   });
   peer.on("connection", (conn) => setupConnection(conn, true));
-  peer.on("error", () => {});
+  peer.on("error", (err) => {
+    state.multiplayer.error = err && err.message ? err.message : "Ошибка сети";
+  });
 }
 
 export function joinRoom(roomId, name) {
+  const room = String(roomId || "").trim();
+  if (!room) {
+    state.multiplayer.error = "Введите код комнаты";
+    return false;
+  }
+  leaveRoom();
   state.multiplayer.localName = name || DEFAULT_NAME;
+  state.multiplayer.error = null;
+  state.multiplayer.roomId = room;
+  state.multiplayer.role = "client";
   const peer = new Peer();
   state.multiplayer.peer = peer;
-  state.multiplayer.roomId = roomId;
   peer.on("open", (id) => {
     state.multiplayer.peerId = id;
-    state.multiplayer.role = "client";
-    const conn = peer.connect(roomId);
+    const conn = peer.connect(room);
     setupConnection(conn, false);
   });
   peer.on("connection", (conn) => setupConnection(conn, true));
-  peer.on("error", () => {});
+  peer.on("error", (err) => {
+    state.multiplayer.connected = false;
+    state.multiplayer.error = err && err.message ? err.message : "Ошибка сети";
+  });
+  return true;
 }
 
 export function getRoomLink(roomId) {
@@ -236,6 +252,15 @@ export function leaveRoom() {
   if (state.multiplayer.peer) {
     try { state.multiplayer.peer.destroy(); } catch (e) {}
   }
+  if (state.multiplayer.remoteBodies) {
+    for (const body of state.multiplayer.remoteBodies.values()) {
+      try {
+        const id = body.GetID();
+        if (body.IsInBroadPhase()) state.bodyInterface.RemoveBody(id);
+        state.bodyInterface.DestroyBody(id);
+      } catch (e) {}
+    }
+  }
   for (const peerId of [...state.multiplayer.remotePlayers.keys()]) removeRemotePlayerVisual(peerId);
   state.multiplayer.role = "none";
   state.multiplayer.roomId = null;
@@ -247,6 +272,9 @@ export function leaveRoom() {
   state.multiplayer.remoteBodies = null;
   state.multiplayer.remoteBodyIds = null;
   state.multiplayer.inputs = null;
+  state.multiplayer.snapshotAccumulator = 0;
+  state.multiplayer.inputAccumulator = 0;
+  state.multiplayer.error = null;
 }
 
 export function collectInput() {
@@ -261,9 +289,6 @@ export function collectInput() {
     touchMove: state.touchMove,
     touchRun: state.touchRun,
     jumpQueued: state.jumpQueued,
-    grab: false,
-    throw: false,
-    drop: false,
   };
 }
 
@@ -279,28 +304,33 @@ export function broadcastSnapshot() {
   if (state.multiplayer.role !== "host" || !state.multiplayer.connected) return;
   const players = [];
   const hostPos = state.playerBody.GetPosition();
+  const hx = hostPos.GetX();
+  const hy = hostPos.GetY();
+  const hz = hostPos.GetZ();
   const hostVel = state.bodyInterface.GetLinearVelocity(state.playerId);
+  const hvx = hostVel.GetX();
+  const hvy = hostVel.GetY();
+  const hvz = hostVel.GetZ();
   players.push({
     id: state.multiplayer.peerId,
-    x: hostPos.GetX(),
-    y: hostPos.GetY(),
-    z: hostPos.GetZ(),
+    x: hx,
+    y: hy,
+    z: hz,
     yaw: state.yaw,
     pitch: state.pitch,
-    vx: hostVel.GetX(),
-    vy: hostVel.GetY(),
-    vz: hostVel.GetZ(),
+    vx: hvx,
+    vy: hvy,
+    vz: hvz,
     held: state.held ? state.held.type : null,
   });
   if (state.multiplayer.remoteBodyIds) {
     for (const [peerId, bodyId] of state.multiplayer.remoteBodyIds.entries()) {
-      const body = state.bodyInterface ? null : null;
       let x = 0, y = PLAYER_SPAWN_Y, z = 0, yaw = 0, pitch = 0, vx = 0, vy = 0, vz = 0;
       try {
         const b = state.multiplayer.remoteBodies.get(peerId);
         const p = b.GetPosition();
-        const v = state.bodyInterface.GetLinearVelocity(bodyId);
         x = p.GetX(); y = p.GetY(); z = p.GetZ();
+        const v = state.bodyInterface.GetLinearVelocity(bodyId);
         vx = v.GetX(); vy = v.GetY(); vz = v.GetZ();
       } catch (e) {}
       const input = state.multiplayer.inputs.get(peerId);
@@ -330,9 +360,12 @@ export function updateNetwork(dt) {
     }
   }
   if (state.multiplayer.role === "client") {
-    sendInput();
+    state.multiplayer.inputAccumulator = (state.multiplayer.inputAccumulator || 0) + dt;
+    if (state.multiplayer.inputAccumulator >= 1 / 30) {
+      state.multiplayer.inputAccumulator = 0;
+      sendInput();
+    }
   }
-  updateMultiplayerStatus();
 }
 
 export function updateRemotePlayers(dt) {
@@ -344,6 +377,7 @@ export function updateRemotePlayers(dt) {
     touchMove: state.touchMove,
     touchRun: state.touchRun,
     jumpQueued: state.jumpQueued,
+    grounded: state.grounded,
     playerBody: state.playerBody,
     playerId: state.playerId,
     held: state.held,
@@ -371,47 +405,7 @@ export function updateRemotePlayers(dt) {
   state.touchMove = saved.touchMove;
   state.touchRun = saved.touchRun;
   state.jumpQueued = saved.jumpQueued;
-  state.playerBody = saved.playerBody;
-  state.playerId = saved.playerId;
-  state.held = saved.held;
-}
-
-function applyRemoteInputs() {
-  if (!state.multiplayer.inputs) return;
-  const saved = {
-    keys: new Set(state.keys),
-    yaw: state.yaw,
-    pitch: state.pitch,
-    touchMove: { ...state.touchMove },
-    touchRun: state.touchRun,
-    jumpQueued: state.jumpQueued,
-    playerBody: state.playerBody,
-    playerId: state.playerId,
-    held: state.held,
-  };
-  for (const [peerId, input] of state.multiplayer.inputs.entries()) {
-    if (!input) continue;
-    const body = state.multiplayer.remoteBodies.get(peerId);
-    if (!body) continue;
-    state.playerBody = body;
-    state.playerId = body.GetID();
-    state.keys = new Set(input.keys || []);
-    state.yaw = input.yaw ?? state.yaw;
-    state.pitch = input.pitch ?? state.pitch;
-    state.touchMove = input.touchMove || { x: 0, y: 0 };
-    state.touchRun = !!input.touchRun;
-    state.jumpQueued = !!input.jumpQueued;
-    state.held = null;
-    try {
-      updatePlayer(FIXED_DT);
-    } catch (e) {}
-  }
-  state.keys = saved.keys;
-  state.yaw = saved.yaw;
-  state.pitch = saved.pitch;
-  state.touchMove = saved.touchMove;
-  state.touchRun = saved.touchRun;
-  state.jumpQueued = saved.jumpQueued;
+  state.grounded = saved.grounded;
   state.playerBody = saved.playerBody;
   state.playerId = saved.playerId;
   state.held = saved.held;
@@ -434,7 +428,4 @@ export function sendEvent(message) {
   }
 }
 
-export function updateMultiplayerStatus() {
-  // no-op placeholder; UI can read state
-}
 

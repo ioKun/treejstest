@@ -24,6 +24,12 @@ export function removeRemotePlayerVisual(peerId) {
   const remote = state.multiplayer.remotePlayers.get(peerId);
   if (!remote) return;
   engine.scene.remove(remote.root);
+  remote.root.traverse((child) => {
+    if (child.isMesh) {
+      child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    }
+  });
   state.multiplayer.remotePlayers.delete(peerId);
 }
 
@@ -46,8 +52,6 @@ export function animateRemotePlayers(dt) {
     rightLeg.rotation.x = -swing;
     leftArm.rotation.x = -swing * 0.8;
     rightArm.rotation.x = swing * 0.8;
-    const bob = Math.sin(remote.walkPhase * 2) * 0.015 * intensity;
-    // keep snapshot y; bob applied visually via torso? skip to avoid jitter
   }
 }
 
@@ -59,6 +63,8 @@ export function syncRemoteVisualsFromBodies() {
     if (!remote || !body) continue;
     const p = body.GetPosition();
     remote.root.position.set(p.GetX(), p.GetY(), p.GetZ());
+    const v = state.bodyInterface.GetLinearVelocity(body.GetID());
+    remote.velocity.set(v.GetX(), v.GetY(), v.GetZ());
     const input = state.multiplayer.inputs ? state.multiplayer.inputs.get(peerId) : null;
     if (input && typeof input.yaw === "number") remote.root.rotation.y = input.yaw;
   }

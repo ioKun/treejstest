@@ -535,6 +535,7 @@ export function applyRemoteEffect(data) {
   } else if (data.effectType === "tornado") {
     spawnTornado(data.x, data.z, data.dx || 1, data.dz || 0, new THREE.Color(data.color || "#ffffff"));
   } else if (data.effectType === "explosion") {
+    applyBlast(data.x, data.y, data.z);
     spawnExplosion(data.x, data.y, data.z);
   }
 }
