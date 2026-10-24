@@ -23,6 +23,7 @@ import {
   TORNADO_SWIRL,
 } from "../constants.js";
 import { spawnBlackHole } from "../fx/blackhole.js";
+import { sendEvent } from "../network/index.js";
 import { spawnPortal, deactivatePortal } from "../fx/portal.js";
 import { spawnTornado, deactivateTornado } from "../fx/tornado.js";
 import { spawnExplosion } from "../fx/explosion.js";
@@ -105,6 +106,7 @@ function createBlackHole(object) {
 
   vanishObject(object, x, y, z);
   spawnBlackHole(x, y, z);
+  sendEvent({ eventType: "effect", effectType: "blackhole", x, y, z, from: state.multiplayer?.peerId });
 }
 
 function openPortalFromFrame(object) {
@@ -116,6 +118,14 @@ function openPortalFromFrame(object) {
   object.instanceMesh.getColorAt(object.instanceIndex, tmpColor);
   vanishObject(object, x, 0, z);
   spawnPortal(x, z, tmpColor);
+  sendEvent({
+    eventType: "effect",
+    effectType: "portal",
+    x,
+    z,
+    color: "#" + tmpColor.getHexString(),
+    from: state.multiplayer?.peerId,
+  });
 }
 
 function createTornadoFromGear(object) {
@@ -144,6 +154,16 @@ function createTornadoFromGear(object) {
   object.instanceMesh.getColorAt(object.instanceIndex, tmpColor);
   vanishObject(object, x, 0, z);
   spawnTornado(x, z, dx / length, dz / length, tmpColor);
+  sendEvent({
+    eventType: "effect",
+    effectType: "tornado",
+    x,
+    z,
+    dx: dx / length,
+    dz: dz / length,
+    color: "#" + tmpColor.getHexString(),
+    from: state.multiplayer?.peerId,
+  });
 }
 
 function explodeBall(object) {
@@ -155,6 +175,14 @@ function explodeBall(object) {
   vanishObject(object, x, y, z);
   applyBlast(x, y, z);
   spawnExplosion(x, y, z);
+  sendEvent({
+    eventType: "effect",
+    effectType: "explosion",
+    x,
+    y,
+    z,
+    from: state.multiplayer?.peerId,
+  });
 }
 
 export function absorbObject(object) {
@@ -495,4 +523,18 @@ export function applyBlast(x, y, z) {
   impulse.Set(nx * scale, ny * scale, nz * scale);
   state.bodyInterface.AddImpulse(state.playerId, impulse);
   state.bodyInterface.ActivateBody(state.playerId);
+}
+
+
+export function applyRemoteEffect(data) {
+  if (!data) return;
+  if (data.effectType === "blackhole") {
+    spawnBlackHole(data.x, data.y, data.z);
+  } else if (data.effectType === "portal") {
+    spawnPortal(data.x, data.z, new THREE.Color(data.color || "#ffffff"));
+  } else if (data.effectType === "tornado") {
+    spawnTornado(data.x, data.z, data.dx || 1, data.dz || 0, new THREE.Color(data.color || "#ffffff"));
+  } else if (data.effectType === "explosion") {
+    spawnExplosion(data.x, data.y, data.z);
+  }
 }

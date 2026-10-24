@@ -3,6 +3,7 @@ import { state } from "../state.js";
 import { FIXED_DT } from "../constants.js";
 import { updatePlayer } from "../game/player.js";
 import { showVictory } from "../ui/victory.js";
+import { applyRemoteEffect } from "../game/projectiles.js";
 import { createRemotePlayerBody } from "../physics/world.js";
 import { addRemotePlayerVisual, removeRemotePlayerVisual, updateRemotePlayerVisual } from "../graphics/remotePlayers.js";
 import { PLAYER_SPAWN_Y } from "../constants.js";
@@ -11,6 +12,15 @@ const DEFAULT_NAME = "Игрок";
 
 function broadcast(message) {
   for (const conn of state.multiplayer.connections.values()) {
+    try {
+      conn.send(message);
+    } catch (e) {}
+  }
+}
+
+function broadcastExcept(exceptId, message) {
+  for (const [id, conn] of state.multiplayer.connections.entries()) {
+    if (id === exceptId) continue;
     try {
       conn.send(message);
     } catch (e) {}
@@ -69,7 +79,16 @@ function handleMessage(from, data, hostSide) {
       }
       break;
     case "event":
-      applyEvent(data);
+      if (data.eventType === "effect") {
+        if (state.multiplayer.role === "host") {
+          applyRemoteEffect(data);
+          broadcastExcept(data.from, data);
+        } else {
+          applyRemoteEffect(data);
+        }
+      } else {
+        applyEvent(data);
+      }
       break;
     case "victory":
       triggerVictory();
@@ -400,6 +419,19 @@ function applyRemoteInputs() {
 
 export function broadcastVictory() {
   broadcast({ type: "victory" });
+}
+
+export function sendEvent(message) {
+  if (!state.multiplayer || !state.multiplayer.connected) return;
+  const msg = Object.assign({ type: "event" }, message);
+  if (state.multiplayer.role === "host") {
+    broadcast(msg);
+  } else {
+    const conn = [...state.multiplayer.connections.values()][0];
+    if (conn) {
+      try { conn.send(msg); } catch (e) {}
+    }
+  }
 }
 
 export function updateMultiplayerStatus() {
