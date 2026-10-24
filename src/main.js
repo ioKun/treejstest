@@ -20,6 +20,7 @@ import { tryGrab, throwHeld, dropHeld } from "./game/grab.js";
 import { resetWorld } from "./game/reset.js";
 import { rebuildWorldObjects } from "./game/objectCount.js";
 import { initMenu } from "./ui/menu.js";
+import { autoJoinFromUrl } from "./network/index.js";
 import { initVictory } from "./ui/victory.js";
 
 async function boot() {
@@ -77,6 +78,7 @@ async function boot() {
 
   initMenu();
   initVictory();
+  autoJoinFromUrl();
 
   loaderText.textContent = "Готово";
   requestAnimationFrame(() => loader.classList.add("hidden"));

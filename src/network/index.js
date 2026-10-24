@@ -195,6 +195,21 @@ export function joinRoom(roomId, name) {
   peer.on("error", () => {});
 }
 
+export function getRoomLink(roomId) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", roomId);
+  return url.toString();
+}
+
+export function autoJoinFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const room = params.get("room");
+  if (!room) return false;
+  const name = localStorage.getItem("mp_name") || "Игрок";
+  joinRoom(room, name);
+  return true;
+}
+
 export function leaveRoom() {
   try {
     for (const conn of state.multiplayer.connections.values()) conn.close();

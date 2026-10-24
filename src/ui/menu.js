@@ -1,7 +1,7 @@
 import { state } from "../state.js";
 import { rebuildWorldObjects } from "../game/objectCount.js";
 import { resetWorld } from "../game/reset.js";
-import { createRoom, joinRoom, leaveRoom } from "../network/index.js";
+import { createRoom, joinRoom, leaveRoom, getRoomLink, autoJoinFromUrl } from "../network/index.js";
 
 const LOADER_REBUILD_TEXT = "Пересборка уровня…";
 
@@ -107,6 +107,9 @@ export function initMenu() {
   const mpLeave = document.getElementById("mp-leave");
   const mpStatus = document.getElementById("mp-status");
   const mpPeers = document.getElementById("mp-peers");
+  const mpLinkRow = document.getElementById("mp-link-row");
+  const mpLink = document.getElementById("mp-link");
+  const mpCopy = document.getElementById("mp-copy");
 
   function refreshMultiplayerStatus() {
     const mp = state.multiplayer;
@@ -118,18 +121,36 @@ export function initMenu() {
     if (mpPeers) {
       mpPeers.textContent = mp.peers.map((p) => p.name || p.id).join(", ");
     }
+    if (mpLinkRow) {
+      if (mp.role === "host" && mp.roomId) {
+        mpLinkRow.style.display = "";
+        if (mpLink) mpLink.value = getRoomLink(mp.roomId);
+      } else {
+        mpLinkRow.style.display = "none";
+      }
+    }
   }
 
   if (mpCreate) {
     mpCreate.addEventListener("click", () => {
+      if (mpName) localStorage.setItem("mp_name", mpName.value || "Игрок");
       createRoom(mpName ? mpName.value : "");
       refreshMultiplayerStatus();
     });
   }
   if (mpJoin) {
     mpJoin.addEventListener("click", () => {
+      if (mpName) localStorage.setItem("mp_name", mpName.value || "Игрок");
       joinRoom(mpRoom ? mpRoom.value.trim() : "", mpName ? mpName.value : "");
       refreshMultiplayerStatus();
+    });
+  }
+  if (mpCopy) {
+    mpCopy.addEventListener("click", () => {
+      if (mpLink) {
+        mpLink.select();
+        try { navigator.clipboard.writeText(mpLink.value); } catch (e) {}
+      }
     });
   }
   if (mpLeave) {
