@@ -61,6 +61,19 @@ export const state = {
   tmpVec3: null,
   tmpVec3b: null,
   zeroVec3: null,
+  multiplayer: {
+    role: "none",
+    roomId: null,
+    peerId: null,
+    peers: [],
+    connected: false,
+    peer: null,
+    connections: new Map(),
+    remotePlayers: new Map(),
+    snapshotAccumulator: 0,
+    inputSeq: 0,
+    lastSnapshotTick: 0,
+  },
 };
 
 export const playerPos = new THREE.Vector3();

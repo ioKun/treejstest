@@ -98,6 +98,24 @@
             <option value="ufo">НЛО (дождь)</option>
           </select>
         </div>
+        <div class="menu-section">
+          <div class="menu-section-title">МУЛЬТИПЛЕЕР</div>
+          <div class="menu-row">
+            <label for="mp-name">ИМЯ</label>
+            <input id="mp-name" type="text" value="Игрок" />
+          </div>
+          <div class="menu-row">
+            <label for="mp-room">КОД КОМНАТЫ</label>
+            <input id="mp-room" type="text" placeholder="код хоста" />
+          </div>
+          <div class="menu-actions">
+            <button id="mp-create" class="menu-button" type="button">СОЗДАТЬ КОМНАТУ</button>
+            <button id="mp-join" class="menu-button menu-button-secondary" type="button">ВОЙТИ</button>
+            <button id="mp-leave" class="menu-button menu-button-secondary" type="button">ВЫЙТИ</button>
+          </div>
+          <div id="mp-status" class="menu-hint">Не подключено</div>
+          <div id="mp-peers" class="menu-hint"></div>
+        </div>
         <div class="menu-actions">
           <button id="menu-resume" class="menu-button" type="button">
             ПРОДОЛЖИТЬ

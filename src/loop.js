@@ -25,6 +25,8 @@ import { updateBlackHoleFx } from "./fx/blackhole.js";
 import { updateTornadoFx } from "./fx/tornado.js";
 import { updatePortalFx } from "./fx/portal.js";
 import { updateHighlight, updateRemovedCounter } from "./ui/hud.js";
+import { syncRemoteVisualsFromBodies } from "./graphics/remotePlayers.js";
+import { updateNetwork, updateRemotePlayers } from "./network/index.js";
 
 let clock = null;
 let accumulator = 0;
@@ -78,6 +80,7 @@ export function syncMeshes() {
 
 function fixedUpdate() {
   updatePlayer(FIXED_DT);
+  updateRemotePlayers(FIXED_DT);
   updateHeld(FIXED_DT);
   updateArmed(FIXED_DT);
   updateBlackHoles(FIXED_DT);
@@ -117,6 +120,7 @@ export function animate() {
   const fxDt = Math.min(dt, 0.05);
   readPlayerState();
   syncMeshes();
+  syncRemoteVisualsFromBodies();
   animateLimbs(fxDt);
   updateExplosionFx(fxDt);
   updateConfettiFx(fxDt);
@@ -132,6 +136,7 @@ export function animate() {
     engine.scene.backgroundRotation.y += dt * 0.004;
   }
   updateRemovedCounter();
+  updateNetwork(dt);
 
   engine.renderer.render(engine.scene, engine.camera);
 }

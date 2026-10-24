@@ -1,6 +1,7 @@
 import { state } from "../state.js";
 import { rebuildWorldObjects } from "../game/objectCount.js";
 import { resetWorld } from "../game/reset.js";
+import { createRoom, joinRoom, leaveRoom } from "../network/index.js";
 
 const LOADER_REBUILD_TEXT = "Пересборка уровня…";
 
@@ -98,4 +99,45 @@ export function initMenu() {
       rebuildWithLoader(state.totalObjects);
     });
   }
+
+  const mpName = document.getElementById("mp-name");
+  const mpRoom = document.getElementById("mp-room");
+  const mpCreate = document.getElementById("mp-create");
+  const mpJoin = document.getElementById("mp-join");
+  const mpLeave = document.getElementById("mp-leave");
+  const mpStatus = document.getElementById("mp-status");
+  const mpPeers = document.getElementById("mp-peers");
+
+  function refreshMultiplayerStatus() {
+    const mp = state.multiplayer;
+    if (mpStatus) {
+      if (mp.role === "host") mpStatus.textContent = `Хост · код: ${mp.roomId}`;
+      else if (mp.role === "client") mpStatus.textContent = `Клиент · комната: ${mp.roomId}`;
+      else mpStatus.textContent = "Не подключено";
+    }
+    if (mpPeers) {
+      mpPeers.textContent = mp.peers.map((p) => p.name || p.id).join(", ");
+    }
+  }
+
+  if (mpCreate) {
+    mpCreate.addEventListener("click", () => {
+      createRoom(mpName ? mpName.value : "");
+      refreshMultiplayerStatus();
+    });
+  }
+  if (mpJoin) {
+    mpJoin.addEventListener("click", () => {
+      joinRoom(mpRoom ? mpRoom.value.trim() : "", mpName ? mpName.value : "");
+      refreshMultiplayerStatus();
+    });
+  }
+  if (mpLeave) {
+    mpLeave.addEventListener("click", () => {
+      leaveRoom();
+      refreshMultiplayerStatus();
+    });
+  }
+
+  setInterval(refreshMultiplayerStatus, 1000);
 }

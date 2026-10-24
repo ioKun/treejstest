@@ -2,6 +2,7 @@ import { state } from "../state.js";
 import { setHighlighted } from "../graphics/highlight.js";
 import { findGrabTarget } from "../game/grab.js";
 import { showVictory } from "./victory.js";
+import { broadcastVictory } from "../network/index.js";
 
 let statsEl = null;
 let countEl = null;
@@ -76,7 +77,12 @@ export function updateRemovedCounter(force = false) {
   if (countEl) countEl.textContent = String(state.removed);
   if (totalEl) totalEl.textContent = String(state.totalObjects);
 
+  const mpClient =
+    state.multiplayer &&
+    state.multiplayer.role === "client" &&
+    state.multiplayer.connected;
   if (
+    !mpClient &&
     !state.victory &&
     state.totalObjects > 0 &&
     state.removed >= state.totalObjects
@@ -84,5 +90,8 @@ export function updateRemovedCounter(force = false) {
     state.victory = true;
     state.paused = true;
     showVictory();
+    if (state.multiplayer && state.multiplayer.role === "host") {
+      broadcastVictory();
+    }
   }
 }

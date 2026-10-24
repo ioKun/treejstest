@@ -147,6 +147,40 @@ export function createPlayerBody() {
   state.ignorePlayerFilter = new J.IgnoreSingleBodyFilter(state.playerId);
 }
 
+export function createRemotePlayerBody() {
+  const J = state.J;
+  const shape = new J.CapsuleShape(PLAYER_HALF_HEIGHT, PLAYER_RADIUS);
+  shape.SetDensity(340);
+
+  const position = new J.RVec3(0, PLAYER_SPAWN_Y, 0);
+  const rotation = new J.Quat(0, 0, 0, 1);
+  const settings = new J.BodyCreationSettings(
+    shape,
+    position,
+    rotation,
+    J.EMotionType_Dynamic,
+    LAYER_MOVING
+  );
+  settings.mAllowedDOFs =
+    J.EAllowedDOFs_TranslationX |
+    J.EAllowedDOFs_TranslationY |
+    J.EAllowedDOFs_TranslationZ;
+  settings.mAllowSleeping = false;
+  settings.mFriction = 0.25;
+  settings.mRestitution = 0;
+  settings.mLinearDamping = 0;
+  settings.mAngularDamping = 0;
+  settings.mMaxLinearVelocity = 40;
+
+  const body = state.bodyInterface.CreateBody(settings);
+  J.destroy(settings);
+  J.destroy(position);
+  J.destroy(rotation);
+
+  state.bodyInterface.AddBody(body.GetID(), J.EActivation_Activate);
+  return body;
+}
+
 function buildDensePileCells(totalCount) {
   const columns = [];
 

@@ -3,12 +3,8 @@ import { engine } from "../engine.js";
 import { state, playerVel } from "../state.js";
 import { PLAYER_SPAWN_Y, RUN_SPEED } from "../constants.js";
 
-export function buildStickman() {
+export function createStickmanVisual() {
   const root = new THREE.Group();
-  root.position.set(0, PLAYER_SPAWN_Y, 0);
-  engine.scene.add(root);
-  state.playerRoot = root;
-
   const skin = new THREE.MeshStandardMaterial({
     color: 0xffdfae,
     roughness: 0.55,
@@ -49,7 +45,16 @@ export function buildStickman() {
   const leftLeg = makeLimb(root, -0.085, -0.02, 0, 0.8, 0.062, skin);
   const rightLeg = makeLimb(root, 0.085, -0.02, 0, 0.8, 0.062, skin);
 
-  state.limbs = { leftArm, rightArm, leftLeg, rightLeg };
+  return { root, limbs: { leftArm, rightArm, leftLeg, rightLeg } };
+}
+
+export function buildStickman() {
+  const visual = createStickmanVisual();
+  const root = visual.root;
+  root.position.set(0, PLAYER_SPAWN_Y, 0);
+  engine.scene.add(root);
+  state.playerRoot = root;
+  state.limbs = visual.limbs;
 }
 
 function makeLimb(parent, x, y, z, length, radius, material) {
