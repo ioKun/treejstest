@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { engine } from "../engine.js";
 import { state } from "../state.js";
-import { PLAYER_SPAWN_Y } from "../constants.js";
+import { PLAYER_SPAWN_Y, RUN_SPEED } from "../constants.js";
 import { createStickmanVisual } from "./stickman.js";
 
 export function addRemotePlayerVisual(peerId) {
@@ -15,6 +15,8 @@ export function addRemotePlayerVisual(peerId) {
     limbs: visual.limbs,
     position: new THREE.Vector3(0, PLAYER_SPAWN_Y, 0),
     yaw: 0,
+    velocity: new THREE.Vector3(),
+    walkPhase: 0,
   });
 }
 
@@ -30,6 +32,23 @@ export function updateRemotePlayerVisual(peerId, data) {
   if (!remote) return;
   if (data.x !== undefined) remote.root.position.set(data.x, data.y, data.z);
   if (data.yaw !== undefined) remote.root.rotation.y = data.yaw;
+  if (data.vx !== undefined) remote.velocity.set(data.vx, data.vy, data.vz);
+}
+
+export function animateRemotePlayers(dt) {
+  for (const remote of state.multiplayer.remotePlayers.values()) {
+    const speed = Math.hypot(remote.velocity.x, remote.velocity.z);
+    const intensity = THREE.MathUtils.clamp(speed / RUN_SPEED, 0, 1);
+    remote.walkPhase += dt * (2.2 + speed * 2.4);
+    const swing = Math.sin(remote.walkPhase) * 0.85 * intensity;
+    const { leftArm, rightArm, leftLeg, rightLeg } = remote.limbs;
+    leftLeg.rotation.x = swing;
+    rightLeg.rotation.x = -swing;
+    leftArm.rotation.x = -swing * 0.8;
+    rightArm.rotation.x = swing * 0.8;
+    const bob = Math.sin(remote.walkPhase * 2) * 0.015 * intensity;
+    // keep snapshot y; bob applied visually via torso? skip to avoid jitter
+  }
 }
 
 export function syncRemoteVisualsFromBodies() {

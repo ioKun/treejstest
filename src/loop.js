@@ -25,7 +25,7 @@ import { updateBlackHoleFx } from "./fx/blackhole.js";
 import { updateTornadoFx } from "./fx/tornado.js";
 import { updatePortalFx } from "./fx/portal.js";
 import { updateHighlight, updateRemovedCounter } from "./ui/hud.js";
-import { syncRemoteVisualsFromBodies } from "./graphics/remotePlayers.js";
+import { syncRemoteVisualsFromBodies, animateRemotePlayers } from "./graphics/remotePlayers.js";
 import { updateNetwork, updateRemotePlayers } from "./network/index.js";
 
 let clock = null;
@@ -121,6 +121,7 @@ export function animate() {
   readPlayerState();
   syncMeshes();
   syncRemoteVisualsFromBodies();
+  animateRemotePlayers(fxDt);
   animateLimbs(fxDt);
   updateExplosionFx(fxDt);
   updateConfettiFx(fxDt);
