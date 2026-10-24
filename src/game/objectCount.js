@@ -5,6 +5,7 @@ import {
   SETTLE_MAX_STEPS_BIG,
 } from "../constants.js";
 import { spawnObjects, settlePile } from "../physics/world.js";
+import { setWorldSeed } from "../physics/worldRandom.js";
 import { setHighlighted } from "../graphics/highlight.js";
 import { updateStats, updateRemovedCounter } from "../ui/hud.js";
 import { respawnPlayer } from "./player.js";
@@ -27,6 +28,7 @@ export function clearWorldObjects() {
   }
 
   state.objects.length = 0;
+  state.objectByKey.clear();
   state.stickyCapsules.length = 0;
   state.armed.length = 0;
   state.removed = 0;
@@ -41,6 +43,7 @@ export function clearWorldObjects() {
 
 export function rebuildWorldObjects(totalCount) {
   clearWorldObjects();
+  setWorldSeed(state.worldSeed);
 
   const ufoMode = state.spawnMode === "ufo";
   spawnObjects(totalCount, ufoMode);

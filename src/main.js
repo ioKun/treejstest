@@ -3,6 +3,7 @@ import { state } from "./state.js";
 import { initGraphics, updateCamera } from "./graphics/renderer.js";
 import { engine } from "./engine.js";
 import { initPhysics } from "./physics/jolt.js";
+import { setWorldSeed } from "./physics/worldRandom.js";
 import {
   buildGroundPhysics,
   createPlayerBody,
@@ -46,6 +47,7 @@ async function boot() {
   await initPhysics();
 
   loaderText.textContent = "Сборка мира…";
+  setWorldSeed(state.worldSeed);
   buildGroundPhysics();
   buildShredderPhysics();
   buildStickman();

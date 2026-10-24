@@ -39,6 +39,7 @@ import {
 } from "../constants.js";
 import { readPlayerState } from "./helpers.js";
 import { createObject } from "./objects.js";
+import { worldRandom } from "./worldRandom.js";
 import { TYPE_CONFIG } from "../graphics/objectAssets.js";
 
 export function buildGroundPhysics() {
@@ -186,8 +187,8 @@ function buildDensePileCells(totalCount) {
 
   for (let x = -PILE_DENSE_RADIUS; x <= PILE_DENSE_RADIUS; x += PILE_DENSE_COLUMN_CELL) {
     for (let z = -PILE_DENSE_RADIUS; z <= PILE_DENSE_RADIUS; z += PILE_DENSE_COLUMN_CELL) {
-      const cx = x + PILE_DENSE_COLUMN_CELL / 2 + (Math.random() - 0.5) * PILE_JITTER * 2;
-      const cz = z + PILE_DENSE_COLUMN_CELL / 2 + (Math.random() - 0.5) * PILE_JITTER * 2;
+      const cx = x + PILE_DENSE_COLUMN_CELL / 2 + (worldRandom() - 0.5) * PILE_JITTER * 2;
+      const cz = z + PILE_DENSE_COLUMN_CELL / 2 + (worldRandom() - 0.5) * PILE_JITTER * 2;
       if (cx * cx + cz * cz > PILE_DENSE_RADIUS * PILE_DENSE_RADIUS) continue;
       columns.push({ x: cx, z: PILE_CENTER_Z + cz });
     }
@@ -203,14 +204,14 @@ function buildDensePileCells(totalCount) {
       cells.push({
         x: column.x,
         z: column.z,
-        y: level * PILE_DENSE_COLUMN_HEIGHT + Math.random() * PILE_DENSE_COLUMN_JITTER,
+        y: level * PILE_DENSE_COLUMN_HEIGHT + worldRandom() * PILE_DENSE_COLUMN_JITTER,
         level,
       });
     }
   }
 
   for (let i = cells.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(worldRandom() * (i + 1));
     const tmp = cells[i];
     cells[i] = cells[j];
     cells[j] = tmp;
@@ -230,8 +231,8 @@ function buildPileCells(totalCount) {
 
     for (let x = -radius; x <= radius; x += PILE_CELL) {
       for (let z = -radius; z <= radius; z += PILE_CELL) {
-        const cx = x + PILE_CELL / 2 + (Math.random() - 0.5) * PILE_JITTER * 2;
-        const cz = z + PILE_CELL / 2 + (Math.random() - 0.5) * PILE_JITTER * 2;
+        const cx = x + PILE_CELL / 2 + (worldRandom() - 0.5) * PILE_JITTER * 2;
+        const cz = z + PILE_CELL / 2 + (worldRandom() - 0.5) * PILE_JITTER * 2;
         if (cx * cx + cz * cz > radius * radius) continue;
         cells.push({ x: cx, z: PILE_CENTER_Z + cz, y: layerY });
       }
@@ -239,7 +240,7 @@ function buildPileCells(totalCount) {
   }
 
   for (let i = cells.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(worldRandom() * (i + 1));
     const tmp = cells[i];
     cells[i] = cells[j];
     cells[j] = tmp;
@@ -274,23 +275,23 @@ export function spawnObjects(totalCount = OBJECT_COUNT_DEFAULT, ufoMode = false)
       let cell;
 
       if (ufoMode) {
-        const angle = Math.random() * Math.PI * 2;
-        const distance = Math.sqrt(Math.random()) * UFO_SPREAD_RADIUS;
+        const angle = worldRandom() * Math.PI * 2;
+        const distance = Math.sqrt(worldRandom()) * UFO_SPREAD_RADIUS;
         cell = {
           x: Math.cos(angle) * distance,
           z: PILE_CENTER_Z + Math.sin(angle) * distance,
-          y: UFO_HEIGHT + Math.random() * 4,
+          y: UFO_HEIGHT + worldRandom() * 4,
         };
       } else {
         cell = cells[cellCursor++];
 
         if (!cell) {
-          const angle = Math.random() * Math.PI * 2;
-          const distance = Math.sqrt(Math.random()) * (dense ? PILE_DENSE_RADIUS : PILE_BASE_RADIUS);
+          const angle = worldRandom() * Math.PI * 2;
+          const distance = Math.sqrt(worldRandom()) * (dense ? PILE_DENSE_RADIUS : PILE_BASE_RADIUS);
           cell = {
             x: Math.cos(angle) * distance,
             z: PILE_CENTER_Z + Math.sin(angle) * distance,
-            y: 4 + Math.random() * 4,
+            y: 4 + worldRandom() * 4,
           };
         }
       }
@@ -325,7 +326,7 @@ export function spawnObjects(totalCount = OBJECT_COUNT_DEFAULT, ufoMode = false)
 
   if (ufoMode) {
     for (let i = ufoObjects.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(worldRandom() * (i + 1));
       const tmp = ufoObjects[i];
       ufoObjects[i] = ufoObjects[j];
       ufoObjects[j] = tmp;

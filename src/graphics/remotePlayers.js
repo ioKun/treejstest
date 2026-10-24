@@ -13,9 +13,12 @@ export function addRemotePlayerVisual(peerId) {
     peerId,
     root: visual.root,
     limbs: visual.limbs,
-    position: new THREE.Vector3(0, PLAYER_SPAWN_Y, 0),
-    yaw: 0,
+    targetPosition: new THREE.Vector3(0, PLAYER_SPAWN_Y, 0),
+    targetYaw: 0,
+    facing: 0,
     velocity: new THREE.Vector3(),
+    snapshotAt: 0,
+    hasSnapshot: false,
     walkPhase: 0,
   });
 }
@@ -36,13 +39,42 @@ export function removeRemotePlayerVisual(peerId) {
 export function updateRemotePlayerVisual(peerId, data) {
   const remote = state.multiplayer.remotePlayers.get(peerId);
   if (!remote) return;
-  if (data.x !== undefined) remote.root.position.set(data.x, data.y, data.z);
-  if (data.yaw !== undefined) remote.root.rotation.y = data.yaw;
-  if (data.vx !== undefined) remote.velocity.set(data.vx, data.vy, data.vz);
+  if (data.x !== undefined) {
+    remote.targetPosition.set(data.x, data.y, data.z);
+    if (!remote.hasSnapshot) {
+      remote.hasSnapshot = true;
+      remote.root.position.copy(remote.targetPosition);
+    }
+  }
+  if (data.facing !== undefined) remote.targetYaw = data.facing;
+  else if (data.yaw !== undefined) remote.targetYaw = data.yaw;
+  if (data.vx !== undefined) {
+    remote.velocity.set(data.vx, data.vy, data.vz);
+    remote.snapshotAt = performance.now();
+  }
+}
+
+function dampAngle(current, target, lambda, dt) {
+  let delta = target - current;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return current + delta * (1 - Math.exp(-lambda * dt));
 }
 
 export function animateRemotePlayers(dt) {
   for (const remote of state.multiplayer.remotePlayers.values()) {
+    if (state.multiplayer.role === "client" && remote.hasSnapshot) {
+      const age = Math.min((performance.now() - remote.snapshotAt) / 1000, 0.12);
+      const tx = remote.targetPosition.x + remote.velocity.x * age;
+      const ty = remote.targetPosition.y;
+      const tz = remote.targetPosition.z + remote.velocity.z * age;
+      const blend = 1 - Math.exp(-20 * dt);
+      remote.root.position.x += (tx - remote.root.position.x) * blend;
+      remote.root.position.y += (ty - remote.root.position.y) * blend;
+      remote.root.position.z += (tz - remote.root.position.z) * blend;
+    }
+    remote.root.rotation.y = dampAngle(remote.root.rotation.y, remote.targetYaw, 14, dt);
+    remote.facing = remote.root.rotation.y;
     const speed = Math.hypot(remote.velocity.x, remote.velocity.z);
     const intensity = THREE.MathUtils.clamp(speed / RUN_SPEED, 0, 1);
     remote.walkPhase += dt * (2.2 + speed * 2.4);
@@ -65,7 +97,8 @@ export function syncRemoteVisualsFromBodies() {
     remote.root.position.set(p.GetX(), p.GetY(), p.GetZ());
     const v = state.bodyInterface.GetLinearVelocity(body.GetID());
     remote.velocity.set(v.GetX(), v.GetY(), v.GetZ());
-    const input = state.multiplayer.inputs ? state.multiplayer.inputs.get(peerId) : null;
-    if (input && typeof input.yaw === "number") remote.root.rotation.y = input.yaw;
+    if (Math.hypot(remote.velocity.x, remote.velocity.z) > 0.35) {
+      remote.targetYaw = Math.atan2(remote.velocity.x, remote.velocity.z);
+    }
   }
 }

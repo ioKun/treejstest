@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { state, tmpMatrix, tmpColor, AXIS_X, AXIS_Y } from "../state.js";
 import { OBJECT_NAMES, TYPE_CONFIG } from "../graphics/objectAssets.js";
 import { LAYER_MOVING } from "../constants.js";
+import { worldRandom } from "./worldRandom.js";
 
 const DEFAULT_PHYSICS = {
   density: 90,
@@ -29,7 +30,7 @@ const ROTATION_BY_TYPE = {
 
 const SHAPE_FACTORIES = {
   box(J) {
-    const size = 0.35 + Math.random() * 0.45;
+    const size = 0.35 + worldRandom() * 0.45;
     const half = size / 2;
     return {
       shape: new J.BoxShape(new J.Vec3(half, half, half), 0.02),
@@ -40,7 +41,7 @@ const SHAPE_FACTORIES = {
     };
   },
   sphere(J) {
-    const r = 0.14 + Math.random() * 0.22;
+    const r = 0.14 + worldRandom() * 0.22;
     return {
       shape: new J.SphereShape(r),
       scale: new THREE.Vector3(r, r, r),
@@ -50,8 +51,8 @@ const SHAPE_FACTORIES = {
     };
   },
   capsule(J) {
-    const r = 0.11 + Math.random() * 0.11;
-    const half = 0.18 + Math.random() * 0.14;
+    const r = 0.11 + worldRandom() * 0.11;
+    const half = 0.18 + worldRandom() * 0.14;
     return {
       shape: new J.CapsuleShape(half, r),
       scale: new THREE.Vector3(r * 2, half + r, r * 2),
@@ -63,8 +64,8 @@ const SHAPE_FACTORIES = {
     };
   },
   gear(J) {
-    const gearRadius = 0.2 + Math.random() * 0.26;
-    const thickness = 0.07 + Math.random() * 0.09;
+    const gearRadius = 0.2 + worldRandom() * 0.26;
+    const thickness = 0.07 + worldRandom() * 0.09;
     return {
       shape: new J.CylinderShape(thickness / 2, gearRadius, 0.02),
       scale: new THREE.Vector3(gearRadius, thickness, gearRadius),
@@ -74,7 +75,7 @@ const SHAPE_FACTORIES = {
     };
   },
   wire(J) {
-    const length = 0.55 + Math.random() * 0.45;
+    const length = 0.55 + worldRandom() * 0.45;
     return {
       shape: new J.CapsuleShape(length / 2, 0.05),
       scale: new THREE.Vector3(1, length, 1),
@@ -84,8 +85,8 @@ const SHAPE_FACTORIES = {
     };
   },
   pipe(J) {
-    const pipeRadius = 0.14 + Math.random() * 0.12;
-    const length = 0.55 + Math.random() * 0.45;
+    const pipeRadius = 0.14 + worldRandom() * 0.12;
+    const length = 0.55 + worldRandom() * 0.45;
     return {
       shape: new J.CylinderShape(length / 2, pipeRadius, 0.02),
       scale: new THREE.Vector3(pipeRadius, length, pipeRadius),
@@ -95,8 +96,8 @@ const SHAPE_FACTORIES = {
     };
   },
   frame(J) {
-    const size = 0.55 + Math.random() * 0.35;
-    const depth = 0.06 + Math.random() * 0.07;
+    const size = 0.55 + worldRandom() * 0.35;
+    const depth = 0.06 + worldRandom() * 0.07;
     return {
       shape: new J.BoxShape(new J.Vec3(size / 2, size / 2, depth / 2), 0.015),
       scale: new THREE.Vector3(size, size, depth),
@@ -109,7 +110,7 @@ const SHAPE_FACTORIES = {
 
 export function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBaseY, deferActivate = false) {
   const J = state.J;
-  const yaw = Math.random() * Math.PI * 2;
+  const yaw = worldRandom() * Math.PI * 2;
   const built = SHAPE_FACTORIES[type](J);
   const physics = { ...DEFAULT_PHYSICS, ...PHYSICS_BY_TYPE[type] };
   const shape = built.shape;
@@ -128,7 +129,7 @@ export function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBa
     spawnRotation = new THREE.Quaternion().setFromAxisAngle(AXIS_Y, yaw);
   }
 
-  const spawnY = spawnBaseY + built.restHeight + 0.02 + Math.random() * 0.04;
+  const spawnY = spawnBaseY + built.restHeight + 0.02 + worldRandom() * 0.04;
   const spawnPosition = new THREE.Vector3(spawnX, spawnY, spawnZ);
 
   const position = new J.RVec3(spawnX, spawnY, spawnZ);
@@ -167,6 +168,7 @@ export function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBa
 
   const object = {
     type,
+    key: type + ":" + index,
     name: OBJECT_NAMES[type],
     body,
     id,
@@ -198,6 +200,7 @@ export function createObject(type, index, mesh, palette, spawnX, spawnZ, spawnBa
   };
 
   state.objects.push(object);
+  state.objectByKey.set(object.key, object);
 
   tmpMatrix.compose(spawnPosition, spawnRotation, built.scale);
   mesh.setMatrixAt(index, tmpMatrix);

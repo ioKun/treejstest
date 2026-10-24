@@ -11,7 +11,9 @@ export const state = {
   playerRoot: null,
   limbs: null,
   objects: [],
+  objectByKey: new Map(),
   instances: {},
+  worldSeed: ((Math.random() * 0xffffffff) >>> 0) || 1,
   paused: false,
   victory: false,
   levelStartTime: 0,
@@ -79,6 +81,13 @@ export const state = {
     inputAccumulator: 0,
     inputSeq: 0,
     lastSnapshotTick: 0,
+    objectSyncAccumulator: 0,
+    activeCursor: 0,
+    idleCursor: 0,
+    lastWorldTotal: 0,
+    lastWorldSpawnMode: "",
+    lastLevelStart: 0,
+    worldReady: false,
   },
 };
 

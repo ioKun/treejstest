@@ -35,7 +35,8 @@ function hideObjectInstance(object) {
   object.instanceMesh.instanceMatrix.needsUpdate = true;
 }
 
-export function vanishObject(object, x, y, z) {
+export function vanishObject(object, x, y, z, force = false) {
+  if (!force && state.multiplayer.role === "client" && state.multiplayer.connected) return;
   if (object.stuckTo) {
     const capsule = object.stuckTo;
     const idx = capsule.stuckObjects.indexOf(object);
@@ -59,7 +60,7 @@ export function vanishObject(object, x, y, z) {
   state.bodyInterface.RemoveBody(object.id);
   object.exploded = true;
   object.fuse = 0;
-  state.removed += 1;
+  if (!(force && state.multiplayer.role === "client")) state.removed += 1;
   hideObjectInstance(object);
 }
 
@@ -106,7 +107,7 @@ function createBlackHole(object) {
 
   vanishObject(object, x, y, z);
   spawnBlackHole(x, y, z);
-  sendEvent({ eventType: "effect", effectType: "blackhole", x, y, z, from: state.multiplayer?.peerId });
+  sendEvent({ eventType: "effect", effectType: "blackhole", x, y, z, objectKey: object.key, from: state.multiplayer?.peerId });
 }
 
 function openPortalFromFrame(object) {
@@ -124,6 +125,7 @@ function openPortalFromFrame(object) {
     x,
     z,
     color: "#" + tmpColor.getHexString(),
+    objectKey: object.key,
     from: state.multiplayer?.peerId,
   });
 }
@@ -162,6 +164,7 @@ function createTornadoFromGear(object) {
     dx: dx / length,
     dz: dz / length,
     color: "#" + tmpColor.getHexString(),
+    objectKey: object.key,
     from: state.multiplayer?.peerId,
   });
 }
@@ -181,11 +184,13 @@ function explodeBall(object) {
     x,
     y,
     z,
+    objectKey: object.key,
     from: state.multiplayer?.peerId,
   });
 }
 
-export function absorbObject(object) {
+export function absorbObject(object, force = false) {
+  if (!force && state.multiplayer.role === "client" && state.multiplayer.connected) return;
   if (object.absorbed || object.exploded) return;
 
   if (object.stuckTo) {
@@ -210,7 +215,7 @@ export function absorbObject(object) {
       stuck.stuckTo = null;
       stuck.stuckOffset = null;
       stuck.stuckRotation = null;
-      absorbObject(stuck);
+      absorbObject(stuck, force);
     }
   }
 
