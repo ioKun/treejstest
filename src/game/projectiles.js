@@ -26,6 +26,7 @@ import { spawnBlackHole } from "../fx/blackhole.js";
 import { spawnPortal, deactivatePortal } from "../fx/portal.js";
 import { spawnTornado, deactivateTornado } from "../fx/tornado.js";
 import { spawnExplosion } from "../fx/explosion.js";
+import { releaseStuckObjects } from "./capsule.js";
 
 function hideObjectInstance(object) {
   tmpMatrix.makeScale(0, 0, 0);
@@ -34,6 +35,25 @@ function hideObjectInstance(object) {
 }
 
 export function vanishObject(object, x, y, z) {
+  if (object.stuckTo) {
+    const capsule = object.stuckTo;
+    const idx = capsule.stuckObjects.indexOf(object);
+    if (idx !== -1) capsule.stuckObjects.splice(idx, 1);
+    object.stuckTo = null;
+    object.stuckOffset = null;
+    object.stuckRotation = null;
+  }
+
+  if (object.sticky && object.grownShape) {
+    object.grownShape.Release();
+    object.grownShape = null;
+    object.sticky = false;
+  }
+
+  if (object.stuckObjects && object.stuckObjects.length) {
+    releaseStuckObjects(object);
+  }
+
   object.position.set(x, y, z);
   state.bodyInterface.RemoveBody(object.id);
   object.exploded = true;
@@ -139,6 +159,21 @@ function explodeBall(object) {
 
 export function absorbObject(object) {
   if (object.absorbed || object.exploded) return;
+
+  if (object.stuckTo) {
+    const capsule = object.stuckTo;
+    const idx = capsule.stuckObjects.indexOf(object);
+    if (idx !== -1) capsule.stuckObjects.splice(idx, 1);
+    object.stuckTo = null;
+    object.stuckOffset = null;
+    object.stuckRotation = null;
+  }
+
+  if (object.sticky && object.grownShape) {
+    object.grownShape.Release();
+    object.grownShape = null;
+    object.sticky = false;
+  }
 
   if (object.stuckObjects && object.stuckObjects.length) {
     const attached = object.stuckObjects.slice();
