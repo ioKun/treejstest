@@ -8,7 +8,7 @@ import {
   FLOOR_GUARD_INTERVAL,
   FLOOR_GUARD_PLAYER_DEPTH,
 } from "../constants.js";
-import { respawnPlayer } from "./player.js";
+import { forEachPlayerBody, respawnPlayer, respawnPlayerBody } from "./player.js";
 import { vanishObject } from "./projectiles.js";
 
 let timer = 0;
@@ -35,8 +35,9 @@ export function updateFloorGuard(dt) {
     vanishObject(object, p.GetX(), 0, p.GetZ());
   }
 
-  const player = state.playerBody.GetPosition();
-  if (player.GetY() < FLOOR_GUARD_PLAYER_DEPTH) {
-    respawnPlayer();
-  }
+  forEachPlayerBody((body, bodyId, peerId) => {
+    if (body.GetPosition().GetY() >= FLOOR_GUARD_PLAYER_DEPTH) return;
+    if (peerId) respawnPlayerBody(bodyId);
+    else respawnPlayer();
+  });
 }

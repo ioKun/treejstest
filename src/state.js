@@ -80,6 +80,7 @@ export const state = {
     remotePlayers: new Map(),
     remoteBodies: null,
     remoteBodyIds: null,
+    remoteHeld: null,
     inputs: null,
     snapshotAccumulator: 0,
     inputAccumulator: 0,

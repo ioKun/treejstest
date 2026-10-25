@@ -16,6 +16,7 @@ export function addRemotePlayerVisual(peerId) {
     targetPosition: new THREE.Vector3(0, PLAYER_SPAWN_Y, 0),
     targetYaw: 0,
     facing: 0,
+    held: false,
     velocity: new THREE.Vector3(),
     snapshotAt: 0,
     hasSnapshot: false,
@@ -48,6 +49,7 @@ export function updateRemotePlayerVisual(peerId, data) {
   }
   if (data.facing !== undefined) remote.targetYaw = data.facing;
   else if (data.yaw !== undefined) remote.targetYaw = data.yaw;
+  if (data.held !== undefined) remote.held = !!data.held;
   if (data.vx !== undefined) {
     remote.velocity.set(data.vx, data.vy, data.vz);
     remote.snapshotAt = performance.now();
@@ -82,8 +84,14 @@ export function animateRemotePlayers(dt) {
     const { leftArm, rightArm, leftLeg, rightLeg } = remote.limbs;
     leftLeg.rotation.x = swing;
     rightLeg.rotation.x = -swing;
-    leftArm.rotation.x = -swing * 0.8;
-    rightArm.rotation.x = swing * 0.8;
+    if (remote.held) {
+      const hold = -1.15 + Math.sin(remote.walkPhase * 2) * 0.04;
+      leftArm.rotation.x += (hold - leftArm.rotation.x) * Math.min(1, dt * 12);
+      rightArm.rotation.x += (hold - rightArm.rotation.x) * Math.min(1, dt * 12);
+    } else {
+      leftArm.rotation.x = -swing * 0.8;
+      rightArm.rotation.x = swing * 0.8;
+    }
   }
 }
 
@@ -97,6 +105,8 @@ export function syncRemoteVisualsFromBodies() {
     remote.root.position.set(p.GetX(), p.GetY(), p.GetZ());
     const v = state.bodyInterface.GetLinearVelocity(body.GetID());
     remote.velocity.set(v.GetX(), v.GetY(), v.GetZ());
+    const input = state.multiplayer.inputs ? state.multiplayer.inputs.get(peerId) : null;
+    remote.held = !!(input && input.held);
     if (Math.hypot(remote.velocity.x, remote.velocity.z) > 0.35) {
       remote.targetYaw = Math.atan2(remote.velocity.x, remote.velocity.z);
     }

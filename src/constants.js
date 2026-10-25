@@ -66,6 +66,8 @@ export const PLAYER_BRAKE_LAMBDA = 20;
 export const HOLD_SPRING_STIFFNESS = 16;
 export const HOLD_MAX_SPEED = 26;
 export const HOLD_DROP_DISTANCE = 3.6;
+export const REMOTE_HELD_SNAP_DISTANCE = 1.5;
+export const REMOTE_HELD_SNAP_Y = 0.35;
 
 export const PICKUP_MIN_DISTANCE = 0.25;
 export const GRAB_SCORE_DOT_WEIGHT = 1.4;

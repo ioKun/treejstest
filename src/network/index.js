@@ -8,7 +8,13 @@ import {
   connectToHost,
   startReconnectWatcher,
 } from "./reconnect.js";
-import { updatePlayer } from "../game/player.js";
+import {
+  releaseRemoteHeldObject,
+  releaseAllRemoteHeld,
+  clearRemoteHeld,
+  syncRemoteHeld,
+} from "./remoteHeld.js";
+import { updatePlayer, updateHeld } from "../game/player.js";
 import { showVictory } from "../ui/victory.js";
 import { applyRemoteEffect, vanishObject } from "../game/projectiles.js";
 import { createRemotePlayerBody } from "../physics/world.js";
@@ -155,6 +161,7 @@ function registerPeer(peerId, name) {
 }
 
 function removePeer(peerId) {
+  releaseRemoteHeldObject(peerId);
   state.multiplayer.peers = state.multiplayer.peers.filter((p) => p.id !== peerId);
   removeRemotePlayerVisual(peerId);
   if (state.multiplayer.remoteBodies) {
@@ -254,6 +261,7 @@ export function createRoom(name) {
       state.multiplayer.peers = [{ id, name: state.multiplayer.localName, isHost: true }];
       state.multiplayer.remoteBodies = new Map();
       state.multiplayer.remoteBodyIds = new Map();
+      state.multiplayer.remoteHeld = new Map();
       state.multiplayer.inputs = new Map();
       state.multiplayer.lastWorldTotal = state.totalObjects;
       state.multiplayer.lastWorldSpawnMode = state.spawnMode;
@@ -404,6 +412,7 @@ export function leaveRoom() {
   if (state.multiplayer.manualPc) {
     try { state.multiplayer.manualPc.close(); } catch (e) {}
   }
+  releaseAllRemoteHeld();
   if (state.multiplayer.remoteBodies) {
     for (const body of state.multiplayer.remoteBodies.values()) {
       try {
@@ -423,6 +432,7 @@ export function leaveRoom() {
   state.multiplayer.peers = [];
   state.multiplayer.remoteBodies = null;
   state.multiplayer.remoteBodyIds = null;
+  state.multiplayer.remoteHeld = null;
   state.multiplayer.inputs = null;
   state.multiplayer.snapshotAccumulator = 0;
   state.multiplayer.inputAccumulator = 0;
@@ -456,6 +466,7 @@ export function collectInput() {
     touchMove: state.touchMove,
     touchRun: state.touchRun,
     jumpQueued: state.jumpQueued,
+    held: state.held ? { key: state.held.key, type: state.held.type } : null,
   };
 }
 
@@ -489,7 +500,7 @@ export function broadcastSnapshot() {
     vx: hvx,
     vy: hvy,
     vz: hvz,
-    held: state.held ? state.held.type : null,
+    held: state.held ? { key: state.held.key, type: state.held.type } : null,
   });
   if (state.multiplayer.remoteBodyIds) {
     for (const [peerId, bodyId] of state.multiplayer.remoteBodyIds.entries()) {
@@ -508,7 +519,8 @@ export function broadcastSnapshot() {
       }
       const remote = state.multiplayer.remotePlayers.get(peerId);
       const facing = remote ? remote.targetYaw : yaw;
-      players.push({ id: peerId, x, y, z, yaw, pitch, facing, vx, vy, vz, held: null });
+      const held = input && input.held ? input.held : null;
+      players.push({ id: peerId, x, y, z, yaw, pitch, facing, vx, vy, vz, held });
     }
   }
   const snapshot = {
@@ -542,6 +554,7 @@ export function updateNetwork(dt) {
       state.multiplayer.lastWorldTotal = state.totalObjects;
       state.multiplayer.lastWorldSpawnMode = state.spawnMode;
       state.multiplayer.lastLevelStart = state.levelStartTime;
+      clearRemoteHeld();
       broadcast(buildWorldMessage());
     }
   }
@@ -580,9 +593,10 @@ export function updateRemotePlayers(dt) {
     state.touchMove = input.touchMove || { x: 0, y: 0 };
     state.touchRun = !!input.touchRun;
     state.jumpQueued = !!input.jumpQueued;
-    state.held = null;
+    state.held = syncRemoteHeld(peerId, input.held, saved.held, body);
     try {
       updatePlayer(dt);
+      if (state.held) updateHeld(dt, false);
     } catch (e) {}
   }
   state.keys = saved.keys;

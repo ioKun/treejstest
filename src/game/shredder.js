@@ -1,8 +1,5 @@
 import * as THREE from "three";
-import {
-  state,
-  playerPos,
-} from "../state.js";
+import { state } from "../state.js";
 import {
   PIT_CENTER_X,
   PIT_CENTER_Z,
@@ -19,7 +16,7 @@ import {
 import { setBodyVelocity } from "../physics/helpers.js";
 import { absorbObject } from "./projectiles.js";
 import { burstShredConfetti } from "../fx/confetti.js";
-import { respawnPlayer } from "./player.js";
+import { forEachPlayerBody, respawnPlayer, respawnPlayerBody } from "./player.js";
 
 const confettiColor = new THREE.Color();
 
@@ -68,10 +65,13 @@ export function updateShredder(dt) {
     state.bodyInterface.ActivateBody(object.id);
   }
 
-  if (
-    insidePit(playerPos.x, playerPos.z) &&
-    playerPos.y < SHRED_PLAYER_ESCAPE_DEPTH
-  ) {
-    respawnPlayer();
-  }
+  forEachPlayerBody((body, bodyId, peerId) => {
+    const p = body.GetPosition();
+    const x = p.GetX();
+    const y = p.GetY();
+    const z = p.GetZ();
+    if (!insidePit(x, z) || y >= SHRED_PLAYER_ESCAPE_DEPTH) return;
+    if (peerId) respawnPlayerBody(bodyId);
+    else respawnPlayer();
+  });
 }

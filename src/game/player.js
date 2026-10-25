@@ -102,7 +102,7 @@ export function checkGrounded() {
   return castRay(targetVec, aimDir, PLAYER_HALF_TOTAL + 0.22);
 }
 
-export function updateHeld(dt) {
+export function updateHeld(dt, allowDrop = true) {
   const object = state.held;
   if (!object) return;
 
@@ -117,7 +117,7 @@ export function updateHeld(dt) {
   readBodyPosition(object, heldPos);
   holdVelocity.copy(targetVec).sub(heldPos);
 
-  if (holdVelocity.length() > HOLD_DROP_DISTANCE) {
+  if (allowDrop && holdVelocity.length() > HOLD_DROP_DISTANCE) {
     dropHeld();
     return;
   }
@@ -136,17 +136,37 @@ export function updateHeld(dt) {
   state.bodyInterface.ActivateBody(object.id);
 }
 
-export function respawnPlayer() {
+export function respawnPlayerBody(bodyId) {
   const J = state.J;
-  const position = state.tmpRVec3;
-  position.Set(0, PLAYER_SPAWN_Y, 0);
+  state.tmpRVec3.Set(0, PLAYER_SPAWN_Y, 0);
   state.tmpQuat.Set(0, 0, 0, 1);
   state.bodyInterface.SetPositionAndRotation(
-    state.playerId,
-    position,
+    bodyId,
+    state.tmpRVec3,
     state.tmpQuat,
     J.EActivation_Activate
   );
-  setBodyVelocity(state.playerId, 0, 0, 0);
+  state.bodyInterface.SetLinearAndAngularVelocity(
+    bodyId,
+    state.zeroVec3,
+    state.zeroVec3
+  );
+}
+
+export function respawnPlayer() {
+  respawnPlayerBody(state.playerId);
   readPlayerState();
+}
+
+export function forEachPlayerBody(callback) {
+  if (state.playerBody) {
+    callback(state.playerBody, state.playerId, null);
+  }
+  if (state.multiplayer.role !== "host" || !state.multiplayer.remoteBodyIds) {
+    return;
+  }
+  for (const [peerId, bodyId] of state.multiplayer.remoteBodyIds.entries()) {
+    const body = state.multiplayer.remoteBodies.get(peerId);
+    if (body) callback(body, bodyId, peerId);
+  }
 }

@@ -147,6 +147,7 @@ export async function startManualHost(name, setupConnection) {
   state.multiplayer.peers = [{ id: roomId, name: state.multiplayer.localName, isHost: true }];
   state.multiplayer.remoteBodies = new Map();
   state.multiplayer.remoteBodyIds = new Map();
+  state.multiplayer.remoteHeld = new Map();
   state.multiplayer.inputs = new Map();
   state.multiplayer.worldReady = true;
   state.multiplayer.lastWorldTotal = state.totalObjects;
