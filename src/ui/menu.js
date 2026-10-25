@@ -10,6 +10,13 @@ import {
   joinManualRoom,
   applyManualAnswerToken,
 } from "../network/index.js";
+import {
+  DEFAULT_PEER_CONFIG,
+  loadPeerConfig,
+  savePeerConfig,
+  normalizePeerConfig,
+  readPeerConfigFromParams,
+} from "../network/peerConfig.js";
 
 const LOADER_REBUILD_TEXT = "Пересборка уровня…";
 
@@ -125,22 +132,66 @@ export function initMenu() {
   const mpAnswerApply = document.getElementById("mp-answer-apply");
   const mpAnswerCode = document.getElementById("mp-answer-code");
   const mpAnswerCopy = document.getElementById("mp-answer-copy");
+  const mpPeerSettings = document.getElementById("mp-peer-settings");
+  const mpPeerHost = document.getElementById("mp-peer-host");
+  const mpPeerPort = document.getElementById("mp-peer-port");
+  const mpPeerPath = document.getElementById("mp-peer-path");
+  const mpPeerKey = document.getElementById("mp-peer-key");
+  const mpPeerSecure = document.getElementById("mp-peer-secure");
+  const mpPeerReset = document.getElementById("mp-peer-reset");
   const params = new URLSearchParams(window.location.search);
   const roomFromUrl = params.get("room");
   if (roomFromUrl && mpRoom) mpRoom.value = roomFromUrl;
   const manualFromUrl = params.get("manual");
   if (manualFromUrl && mpRoom) mpRoom.value = manualFromUrl;
   const storedMode = localStorage.getItem("mp_mode");
-  if (mpMode) mpMode.value = manualFromUrl ? "manual" : storedMode || "manual";
+  if (mpMode) {
+    mpMode.value = manualFromUrl
+      ? "manual"
+      : roomFromUrl
+        ? "peerjs"
+        : storedMode || "peerjs";
+  }
 
   function currentMode() {
-    return mpMode ? mpMode.value : "manual";
+    return mpMode ? mpMode.value : "peerjs";
+  }
+
+  function applyPeerConfigToForm(config) {
+    if (!config) return;
+    if (mpPeerHost) mpPeerHost.value = config.host;
+    if (mpPeerPort) mpPeerPort.value = String(config.port);
+    if (mpPeerPath) mpPeerPath.value = config.path;
+    if (mpPeerKey) mpPeerKey.value = config.key;
+    if (mpPeerSecure) mpPeerSecure.checked = !!config.secure;
+  }
+
+  function readPeerConfigForm() {
+    return normalizePeerConfig({
+      host: mpPeerHost ? mpPeerHost.value : DEFAULT_PEER_CONFIG.host,
+      port: mpPeerPort ? mpPeerPort.value : DEFAULT_PEER_CONFIG.port,
+      path: mpPeerPath ? mpPeerPath.value : DEFAULT_PEER_CONFIG.path,
+      key: mpPeerKey ? mpPeerKey.value : DEFAULT_PEER_CONFIG.key,
+      secure: mpPeerSecure ? mpPeerSecure.checked : DEFAULT_PEER_CONFIG.secure,
+    });
+  }
+
+  function savePeerConfigFromForm() {
+    savePeerConfig(readPeerConfigForm());
   }
 
   function updateModeUi() {
     const manual = currentMode() === "manual";
     if (mpCreate) mpCreate.textContent = manual ? "СОЗДАТЬ ССЫЛКУ" : "СОЗДАТЬ КОМНАТУ";
     if (mpRoom) mpRoom.placeholder = manual ? "ссылка или код приглашения" : "код комнаты";
+    if (mpPeerSettings) mpPeerSettings.style.display = manual ? "none" : "";
+  }
+
+  applyPeerConfigToForm(loadPeerConfig());
+  const peerFromUrl = readPeerConfigFromParams(params);
+  if (peerFromUrl) {
+    applyPeerConfigToForm(peerFromUrl);
+    savePeerConfig(peerFromUrl);
   }
 
   function refreshMultiplayerStatus() {
@@ -193,6 +244,7 @@ export function initMenu() {
       if (currentMode() === "manual") {
         await createManualRoom(name);
       } else {
+        savePeerConfigFromForm();
         createRoom(name);
       }
       refreshMultiplayerStatus();
@@ -206,6 +258,7 @@ export function initMenu() {
       if (currentMode() === "manual") {
         await joinManualRoom(value, name);
       } else {
+        savePeerConfigFromForm();
         joinRoom(value, name);
       }
       refreshMultiplayerStatus();
@@ -216,6 +269,15 @@ export function initMenu() {
       localStorage.setItem("mp_mode", mpMode.value);
       updateModeUi();
       refreshMultiplayerStatus();
+    });
+  }
+  for (const field of [mpPeerHost, mpPeerPort, mpPeerPath, mpPeerKey, mpPeerSecure]) {
+    if (field) field.addEventListener("change", savePeerConfigFromForm);
+  }
+  if (mpPeerReset) {
+    mpPeerReset.addEventListener("click", () => {
+      applyPeerConfigToForm(DEFAULT_PEER_CONFIG);
+      savePeerConfigFromForm();
     });
   }
   if (mpAnswerApply) {

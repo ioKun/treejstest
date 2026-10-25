@@ -92,6 +92,11 @@ export const state = {
     lastWorldSpawnMode: "",
     lastLevelStart: 0,
     worldReady: false,
+    peerReconnectAttempts: 0,
+    lastPeerReconnectAt: 0,
+    hostConnectAttempts: 0,
+    lastHostConnectAt: 0,
+    clientConnectPending: false,
   },
 };
 

@@ -103,11 +103,35 @@
           <div class="menu-row">
             <label for="mp-mode">РЕЖИМ</label>
             <select id="mp-mode">
-              <option value="manual" selected>Ручной (без сервера)</option>
-              <option value="peerjs">PeerJS (нужен интернет)</option>
+              <option value="peerjs" selected>PeerJS (облако / свой сервер)</option>
+              <option value="manual">Ручной (без сервера)</option>
             </select>
           </div>
-          <div class="menu-hint">Ручной режим не требует сервера. PeerJS может быть недоступен без VPN.</div>
+          <div class="menu-hint">Если PeerJS недоступен — переключитесь на ручной режим.</div>
+          <details id="mp-peer-settings" class="menu-section">
+            <summary class="menu-hint">НАСТРОЙКИ PEERJS</summary>
+            <div class="menu-row">
+              <label for="mp-peer-host">СЕРВЕР</label>
+              <input id="mp-peer-host" type="text" value="0.peerjs.com" />
+            </div>
+            <div class="menu-row">
+              <label for="mp-peer-port">ПОРТ</label>
+              <input id="mp-peer-port" type="number" value="443" />
+            </div>
+            <div class="menu-row">
+              <label for="mp-peer-path">ПУТЬ</label>
+              <input id="mp-peer-path" type="text" value="/" />
+            </div>
+            <div class="menu-row">
+              <label for="mp-peer-key">КЛЮЧ</label>
+              <input id="mp-peer-key" type="text" value="peerjs" />
+            </div>
+            <div class="menu-row">
+              <label for="mp-peer-secure">SSL</label>
+              <input id="mp-peer-secure" type="checkbox" checked />
+            </div>
+            <button id="mp-peer-reset" class="menu-button menu-button-secondary" type="button">СБРОС СЕРВЕРА</button>
+          </details>
           <div class="menu-row">
             <label for="mp-name">ИМЯ</label>
             <input id="mp-name" type="text" value="Игрок" />

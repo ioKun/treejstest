@@ -1,6 +1,13 @@
 import Peer from "peerjs";
 import { state } from "../state.js";
 import { PLAYER_SPAWN_Y } from "../constants.js";
+import {
+  handlePeerError,
+  attachPeerReconnect,
+  armPeerTimeout,
+  connectToHost,
+  startReconnectWatcher,
+} from "./reconnect.js";
 import { updatePlayer } from "../game/player.js";
 import { showVictory } from "../ui/victory.js";
 import { applyRemoteEffect, vanishObject } from "../game/projectiles.js";
@@ -23,6 +30,13 @@ import {
   applyObjectSync,
   createObjectSyncMessage,
 } from "./objectSync.js";
+import {
+  loadPeerConfig,
+  savePeerConfig,
+  peerOptions,
+  addPeerConfigToUrl,
+  readPeerConfigFromParams,
+} from "./peerConfig.js";
 
 const DEFAULT_NAME = "Игрок";
 
@@ -48,6 +62,8 @@ function setupConnection(conn, hostSide) {
     state.multiplayer.connections.set(conn.peer, conn);
     state.multiplayer.connected = true;
     state.multiplayer.error = null;
+    state.multiplayer.clientConnectPending = false;
+    state.multiplayer.hostConnectAttempts = 0;
     if (!hostSide) {
       conn.send({ type: "hello", name: state.multiplayer.localName || DEFAULT_NAME });
     }
@@ -67,6 +83,8 @@ function setupConnection(conn, hostSide) {
     removePeer(conn.peer);
   });
 }
+
+startReconnectWatcher(setupConnection);
 
 function handleMessage(from, data) {
   if (!data || typeof data !== "object") return;
@@ -156,7 +174,13 @@ function removePeer(peerId) {
     broadcast({ type: "peer-list", peers: state.multiplayer.peers });
   } else if (state.multiplayer.role === "client" && state.multiplayer.connections.size === 0) {
     state.multiplayer.connected = false;
-    state.multiplayer.error = "Соединение с хостом потеряно";
+    state.multiplayer.clientConnectPending = false;
+    if (state.multiplayer.mode === "peerjs") {
+      state.multiplayer.error = "Соединение с хостом потеряно. Переподключение…";
+      setTimeout(ensureConnectivity, 500);
+    } else {
+      state.multiplayer.error = "Соединение с хостом потеряно";
+    }
   }
 }
 
@@ -216,26 +240,52 @@ export function createRoom(name) {
   state.multiplayer.mode = "peerjs";
   state.multiplayer.localName = name || DEFAULT_NAME;
   state.multiplayer.error = null;
-  const peer = new Peer();
+  const peer = new Peer(peerOptions(loadPeerConfig()));
   state.multiplayer.peer = peer;
   peer.on("open", (id) => {
+    if (state.multiplayer.peer !== peer) return;
+    const previousId = state.multiplayer.roomId;
     state.multiplayer.role = "host";
     state.multiplayer.roomId = id;
     state.multiplayer.peerId = id;
     state.multiplayer.connected = true;
-    state.multiplayer.peers = [{ id, name: state.multiplayer.localName, isHost: true }];
-    state.multiplayer.remoteBodies = new Map();
-    state.multiplayer.remoteBodyIds = new Map();
-    state.multiplayer.inputs = new Map();
-    state.multiplayer.lastWorldTotal = state.totalObjects;
-    state.multiplayer.lastWorldSpawnMode = state.spawnMode;
-    state.multiplayer.lastLevelStart = state.levelStartTime;
-    state.multiplayer.worldReady = true;
+    state.multiplayer.error = null;
+    if (!state.multiplayer.remoteBodies) {
+      state.multiplayer.peers = [{ id, name: state.multiplayer.localName, isHost: true }];
+      state.multiplayer.remoteBodies = new Map();
+      state.multiplayer.remoteBodyIds = new Map();
+      state.multiplayer.inputs = new Map();
+      state.multiplayer.lastWorldTotal = state.totalObjects;
+      state.multiplayer.lastWorldSpawnMode = state.spawnMode;
+      state.multiplayer.lastLevelStart = state.levelStartTime;
+      state.multiplayer.worldReady = true;
+    } else {
+      const hostPeer = state.multiplayer.peers.find((p) => p.isHost);
+      if (hostPeer) {
+        hostPeer.id = id;
+        hostPeer.name = state.multiplayer.localName;
+      } else {
+        state.multiplayer.peers.unshift({
+          id,
+          name: state.multiplayer.localName,
+          isHost: true,
+        });
+      }
+    }
+    if (previousId && previousId !== id) {
+      broadcast({ type: "peer-list", peers: state.multiplayer.peers });
+    }
   });
-  peer.on("connection", (conn) => setupConnection(conn, true));
+  peer.on("connection", (conn) => {
+    if (state.multiplayer.peer !== peer) return;
+    setupConnection(conn, true);
+  });
   peer.on("error", (err) => {
-    state.multiplayer.error = err && err.message ? err.message : "Ошибка сети";
+    if (state.multiplayer.peer !== peer) return;
+    handlePeerError(err);
   });
+  attachPeerReconnect(peer);
+  armPeerTimeout(peer);
 }
 
 export function joinRoom(roomId, name) {
@@ -251,18 +301,25 @@ export function joinRoom(roomId, name) {
   state.multiplayer.roomId = room;
   state.multiplayer.role = "client";
   state.multiplayer.worldReady = false;
-  const peer = new Peer();
+  const peer = new Peer(peerOptions(loadPeerConfig()));
   state.multiplayer.peer = peer;
   peer.on("open", (id) => {
+    if (state.multiplayer.peer !== peer) return;
     state.multiplayer.peerId = id;
-    const conn = peer.connect(room);
-    setupConnection(conn, false);
+    state.multiplayer.error = null;
+    state.multiplayer.hostConnectAttempts = 0;
+    connectToHost(peer, room, setupConnection);
   });
-  peer.on("connection", (conn) => setupConnection(conn, true));
+  peer.on("connection", (conn) => {
+    if (state.multiplayer.peer !== peer) return;
+    setupConnection(conn, true);
+  });
   peer.on("error", (err) => {
-    state.multiplayer.connected = false;
-    state.multiplayer.error = err && err.message ? err.message : "Ошибка сети";
+    if (state.multiplayer.peer !== peer) return;
+    handlePeerError(err);
   });
+  attachPeerReconnect(peer);
+  armPeerTimeout(peer);
   return true;
 }
 
@@ -317,6 +374,7 @@ export async function applyManualAnswerToken(value) {
 export function getRoomLink(roomId) {
   const url = new URL(window.location.href);
   url.searchParams.set("room", roomId);
+  addPeerConfigToUrl(url, loadPeerConfig());
   return url.toString();
 }
 
@@ -330,6 +388,8 @@ export async function autoJoinFromUrl() {
   }
   const room = params.get("room");
   if (!room) return false;
+  const peerConfig = readPeerConfigFromParams(params);
+  if (peerConfig) savePeerConfig(peerConfig);
   joinRoom(room, name);
   return true;
 }
@@ -376,6 +436,11 @@ export function leaveRoom() {
   state.multiplayer.manualPc = null;
   state.multiplayer.manualLink = "";
   state.multiplayer.manualAnswer = "";
+  state.multiplayer.peerReconnectAttempts = 0;
+  state.multiplayer.lastPeerReconnectAt = 0;
+  state.multiplayer.hostConnectAttempts = 0;
+  state.multiplayer.lastHostConnectAt = 0;
+  state.multiplayer.clientConnectPending = false;
   state.multiplayer.error = null;
 }
 
