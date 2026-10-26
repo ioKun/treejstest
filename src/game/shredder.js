@@ -5,6 +5,7 @@ import {
   PIT_CENTER_Z,
   PIT_HALF_X,
   PIT_HALF_Z,
+  SCENE_MAIN,
   SHRED_TRIGGER_DEPTH,
   SHRED_REMOVE_DEPTH,
   SHRED_ABSORB_GAP_Z,
@@ -27,6 +28,7 @@ function insidePit(x, z) {
 }
 
 export function updateShredder(dt) {
+  if (state.sceneId !== SCENE_MAIN) return;
   for (const object of state.objects) {
     if (object.exploded || object.absorbed || object.stuckTo) continue;
 

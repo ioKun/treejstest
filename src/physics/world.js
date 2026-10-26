@@ -1,5 +1,3 @@
-import * as THREE from "three";
-import { engine } from "../engine.js";
 import { state } from "../state.js";
 import {
   FIXED_DT,
@@ -10,7 +8,6 @@ import {
   PIT_CENTER_Z,
   PIT_HALF_X,
   PIT_HALF_Z,
-  PLAYER_SPAWN_Y,
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
   PILE_CENTER_Z,
@@ -40,6 +37,7 @@ import {
 import { readPlayerState } from "./helpers.js";
 import { createObject } from "./objects.js";
 import { worldRandom } from "./worldRandom.js";
+import { createTypeMesh, finalizeTypeMesh } from "./objectMeshes.js";
 import { TYPE_CONFIG } from "../graphics/objectAssets.js";
 
 export function buildGroundPhysics() {
@@ -117,7 +115,11 @@ export function createPlayerBody() {
   const shape = new J.CapsuleShape(PLAYER_HALF_HEIGHT, PLAYER_RADIUS);
   shape.SetDensity(340);
 
-  const position = new J.RVec3(0, PLAYER_SPAWN_Y, 0);
+  const position = new J.RVec3(
+    state.playerSpawn.x,
+    state.playerSpawn.y,
+    state.playerSpawn.z
+  );
   const rotation = new J.Quat(0, 0, 0, 1);
   const settings = new J.BodyCreationSettings(
     shape,
@@ -153,7 +155,11 @@ export function createRemotePlayerBody() {
   const shape = new J.CapsuleShape(PLAYER_HALF_HEIGHT, PLAYER_RADIUS);
   shape.SetDensity(340);
 
-  const position = new J.RVec3(0, PLAYER_SPAWN_Y, 0);
+  const position = new J.RVec3(
+    state.playerSpawn.x,
+    state.playerSpawn.y,
+    state.playerSpawn.z
+  );
   const rotation = new J.Quat(0, 0, 0, 1);
   const settings = new J.BodyCreationSettings(
     shape,
@@ -259,18 +265,7 @@ export function spawnObjects(totalCount = OBJECT_COUNT_DEFAULT, ufoMode = false)
 
   for (const [type, config] of Object.entries(TYPE_CONFIG)) {
     const count = counts[type];
-    const geometry = config.geometry();
-    const material = config.material();
-    const mesh = new THREE.InstancedMesh(geometry, material, count);
-
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.castShadow = true;
-    mesh.receiveShadow = false;
-    mesh.frustumCulled = false;
-    mesh.name = type;
-
-    engine.scene.add(mesh);
-    state.instances[type] = mesh;
+    const mesh = createTypeMesh(type, count);
     for (let i = 0; i < count; i++) {
       let cell;
 
@@ -317,8 +312,7 @@ export function spawnObjects(totalCount = OBJECT_COUNT_DEFAULT, ufoMode = false)
         (waves[level] ||= []).push(object);
       }
     }
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.instanceMatrix.needsUpdate = true;
+    finalizeTypeMesh(mesh);
   }
 
   state.pendingSettleWaves = waves;

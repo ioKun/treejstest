@@ -16,8 +16,8 @@ import { updateUfo } from "./game/ufo.js";
 import { updateShredder } from "./game/shredder.js";
 import { updateShredderShafts } from "./physics/shredder.js";
 import { updateShredderVisual } from "./graphics/shredder.js";
-import { animateLimbs } from "./graphics/stickman.js";
 import { updateCamera } from "./graphics/renderer.js";
+import { runPlayerVisual, runSceneFixed, runSceneFrame } from "./scenes/sceneRuntime.js";
 import { updateUfoVisual } from "./graphics/ufo.js";
 import { updateExplosionFx } from "./fx/explosion.js";
 import { updateConfettiFx } from "./fx/confetti.js";
@@ -78,7 +78,7 @@ export function syncMeshes() {
   state.playerRoot.rotation.y = state.facing;
 }
 
-function fixedUpdate() {
+function fixedUpdate(dt = FIXED_DT) {
   updatePlayer(FIXED_DT);
   updateRemotePlayers(FIXED_DT);
   updateHeld(FIXED_DT);
@@ -88,6 +88,7 @@ function fixedUpdate() {
   updatePortals(FIXED_DT);
   updateShredder(FIXED_DT);
   updateShredderShafts();
+  runSceneFixed(dt);
   state.jolt.Step(FIXED_DT, 1);
   updateStickyCapsules();
   updateFloorGuard(FIXED_DT);
@@ -122,13 +123,14 @@ export function animate() {
   syncMeshes();
   syncRemoteVisualsFromBodies();
   animateRemotePlayers(fxDt);
-  animateLimbs(fxDt);
+  runPlayerVisual(fxDt);
   updateExplosionFx(fxDt);
   updateConfettiFx(fxDt);
   updateBlackHoleFx(fxDt);
   updateTornadoFx(fxDt);
   updatePortalFx(fxDt);
   updateShredderVisual(fxDt);
+  runSceneFrame(fxDt);
   updateCamera();
   updateUfoVisual(dt);
   updateHighlight();

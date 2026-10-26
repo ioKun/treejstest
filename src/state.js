@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { PLAYER_SPAWN_Y, SCENE_MAIN } from "./constants.js";
 
 export const state = {
   J: null,
@@ -9,6 +10,10 @@ export const state = {
   playerBody: null,
   playerId: null,
   playerRoot: null,
+  sceneId: SCENE_MAIN,
+  playerSpawn: new THREE.Vector3(0, PLAYER_SPAWN_Y, 0),
+  playerVisual: null,
+  lake: {},
   limbs: null,
   objects: [],
   objectByKey: new Map(),

@@ -1,31 +1,8 @@
 import "./style.css";
 import { state } from "./state.js";
-import { initGraphics, updateCamera } from "./graphics/renderer.js";
-import { engine } from "./engine.js";
-import { initPhysics } from "./physics/jolt.js";
-import { setWorldSeed } from "./physics/worldRandom.js";
-import {
-  buildGroundPhysics,
-  createPlayerBody,
-  spawnObjects,
-  settlePile,
-} from "./physics/world.js";
-import { buildShredderPhysics } from "./physics/shredder.js";
-import { readPlayerState } from "./physics/helpers.js";
-import { buildStickman } from "./graphics/stickman.js";
-import { initUfoVisual } from "./graphics/ufo.js";
-import { setupInput } from "./input/index.js";
-import { syncMeshes, restartClock, animate } from "./loop.js";
-import { updateStats, updateRemovedCounter } from "./ui/hud.js";
-import { tryGrab, throwHeld, dropHeld } from "./game/grab.js";
-import { resetWorld } from "./game/reset.js";
-import { rebuildWorldObjects } from "./game/objectCount.js";
-import { initMenu } from "./ui/menu.js";
-import { autoJoinFromUrl } from "./network/index.js";
-import { initVictory } from "./ui/victory.js";
+import { startSelectedScene } from "./scenes/boot.js";
 
 async function boot() {
-  const loader = document.getElementById("loader");
   const loaderText = document.getElementById("loader-text");
 
   state.hintEl = document.getElementById("hint");
@@ -41,52 +18,7 @@ async function boot() {
     return;
   }
 
-  initGraphics();
-
-  loaderText.textContent = "Инициализация Jolt MT…";
-  await initPhysics();
-
-  loaderText.textContent = "Сборка мира…";
-  setWorldSeed(state.worldSeed);
-  buildGroundPhysics();
-  buildShredderPhysics();
-  buildStickman();
-  initUfoVisual(engine.scene);
-  createPlayerBody();
-  spawnObjects();
-  state.totalObjects = state.objects.length;
-
-  loaderText.textContent = "Усадка кучи…";
-  settlePile();
-
-  setupInput();
-  readPlayerState();
-  syncMeshes();
-  updateCamera();
-  updateStats();
-  updateRemovedCounter(true);
-  state.levelStartTime = performance.now();
-
-  if (import.meta.env.DEV) {
-    window.__game = state;
-    window.__gameApi = {
-      tryGrab,
-      throwHeld,
-      dropHeld,
-      resetWorld,
-      setObjectCount: rebuildWorldObjects,
-    };
-  }
-
-  initMenu();
-  initVictory();
-  autoJoinFromUrl();
-
-  loaderText.textContent = "Готово";
-  requestAnimationFrame(() => loader.classList.add("hidden"));
-
-  restartClock();
-  requestAnimationFrame(animate);
+  await startSelectedScene();
 }
 
 function reportFatalError(error) {

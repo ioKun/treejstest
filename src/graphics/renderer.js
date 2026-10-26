@@ -10,7 +10,9 @@ import { initBlackHoleFx } from "../fx/blackhole.js";
 import { initPortalFx } from "../fx/portal.js";
 import { initTornadoFx } from "../fx/tornado.js";
 
-export function initGraphics() {
+let resizeRegistered = false;
+
+export function initRendererCore() {
   const canvas = document.getElementById("game");
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -36,6 +38,15 @@ export function initGraphics() {
   );
   engine.camera = camera;
 
+  if (!resizeRegistered) {
+    window.addEventListener("resize", onResize);
+    resizeRegistered = true;
+  }
+}
+
+export function initGraphics() {
+  initRendererCore();
+
   addSky();
   addLights();
   addGroundVisual();
@@ -46,7 +57,6 @@ export function initGraphics() {
   initBlackHoleFx();
   initPortalFx();
   initTornadoFx();
-  window.addEventListener("resize", onResize);
 }
 
 export function onResize() {

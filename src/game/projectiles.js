@@ -9,6 +9,7 @@ import {
   PORTAL_CAPTURE_HEIGHT,
   PORTAL_REMOVE_DEPTH,
   PORTAL_RADIUS,
+  SCENE_MAIN,
   SPECIAL_FUSE,
   TORNADO_HEIGHT,
   TORNADO_RADIUS,
@@ -65,6 +66,7 @@ export function vanishObject(object, x, y, z, force = false) {
 }
 
 export function armObject(object) {
+  if (state.sceneId !== SCENE_MAIN) return;
   if (object.exploded || object.absorbed) return;
   if (
     object.type !== "sphere" &&

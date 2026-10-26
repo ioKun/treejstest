@@ -10,7 +10,6 @@ import {
 } from "../state.js";
 import {
   JUMP_SPEED,
-  PLAYER_SPAWN_Y,
   PLAYER_HALF_TOTAL,
   RUN_SPEED,
   WALK_SPEED,
@@ -138,7 +137,11 @@ export function updateHeld(dt, allowDrop = true) {
 
 export function respawnPlayerBody(bodyId) {
   const J = state.J;
-  state.tmpRVec3.Set(0, PLAYER_SPAWN_Y, 0);
+  state.tmpRVec3.Set(
+    state.playerSpawn.x,
+    state.playerSpawn.y,
+    state.playerSpawn.z
+  );
   state.tmpQuat.Set(0, 0, 0, 1);
   state.bodyInterface.SetPositionAndRotation(
     bodyId,

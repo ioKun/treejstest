@@ -1,4 +1,5 @@
 import { state } from "../state.js";
+import { SCENE_MAIN } from "../constants.js";
 import { setHighlighted } from "../graphics/highlight.js";
 import { findGrabTarget } from "../game/grab.js";
 import { showVictory } from "./victory.js";
@@ -37,6 +38,18 @@ export function updateHighlight() {
   const touch = document.body.classList.contains("touch");
   const action = touch ? "Тап" : "ЛКМ";
   const suffix = touch ? "" : " · E — отпустить";
+
+  if (state.sceneId !== SCENE_MAIN) {
+    if (state.held) {
+      setHighlighted(null);
+      setHint("ЛКМ/Тап — бросить · E — отпустить", true);
+      return;
+    }
+    const object = findGrabTarget();
+    setHighlighted(object);
+    setHint("ЛКМ/Тап — схватить", true);
+    return;
+  }
 
   if (state.held) {
     setHighlighted(null);

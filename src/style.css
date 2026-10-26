@@ -241,6 +241,41 @@ kbd {
   color: rgba(220, 236, 246, 0.5);
 }
 
+#scene-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scene-button {
+  flex: 1 1 0;
+  min-width: 120px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 226, 255, 0.45);
+  border-radius: 8px;
+  background: rgba(20, 65, 78, 0.45);
+  color: #5ee2ff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scene-button:hover {
+  background: rgba(30, 90, 105, 0.6);
+}
+
+.scene-button.active {
+  border-color: #5ee2ff;
+  background: rgba(30, 90, 105, 0.85);
+  color: #f2f8ff;
+  box-shadow: 0 0 0 2px rgba(94, 226, 255, 0.25);
+}
+
 #removed-counter {
   position: fixed;
   top: 18px;
@@ -635,3 +670,13 @@ kbd {
 #victory-board li .initials { width: 48px; font-weight: 700; }
 #victory-board li .time { flex: 1; text-align: right; }
 .victory-actions { display: flex; justify-content: center; }
+
+.scene-lake #removed-counter {
+  display: none;
+}
+
+.scene-lake #object-count-row,
+.scene-lake #spawn-mode-row,
+.scene-lake #multiplayer-section {
+  display: none;
+}

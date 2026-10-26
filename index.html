@@ -81,8 +81,13 @@
 
     <div id="menu">
       <div id="menu-panel">
+        <div id="scene-chooser" class="menu-section">
+          <div class="menu-section-title">СЦЕНА</div>
+          <div id="scene-actions" class="menu-actions"></div>
+          <div class="menu-hint">ESC — закрыть</div>
+        </div>
         <div class="menu-title">МЕНЮ</div>
-        <div class="menu-row">
+        <div class="menu-row" id="object-count-row">
           <label for="object-count">ПРЕДМЕТЫ</label>
           <select id="object-count" aria-label="Количество предметов">
             <option value="1000">1000</option>
@@ -91,14 +96,14 @@
             <option value="10000">10000</option>
           </select>
         </div>
-        <div class="menu-row">
+        <div class="menu-row" id="spawn-mode-row">
           <label for="spawn-mode">СТАРТ</label>
           <select id="spawn-mode" aria-label="Режим старта предметов">
             <option value="pile">Куча (сразу)</option>
             <option value="ufo">НЛО (дождь)</option>
           </select>
         </div>
-        <div class="menu-section">
+        <div class="menu-section" id="multiplayer-section">
           <div class="menu-section-title">МУЛЬТИПЛЕЕР</div>
           <div class="menu-row">
             <label for="mp-mode">РЕЖИМ</label>

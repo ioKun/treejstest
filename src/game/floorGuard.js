@@ -4,6 +4,7 @@ import {
   PIT_CENTER_Z,
   PIT_HALF_X,
   PIT_HALF_Z,
+  SCENE_MAIN,
   FLOOR_GUARD_DEPTH,
   FLOOR_GUARD_INTERVAL,
   FLOOR_GUARD_PLAYER_DEPTH,
@@ -23,6 +24,7 @@ function insidePit(x, z) {
 }
 
 export function updateFloorGuard(dt) {
+  if (state.sceneId !== SCENE_MAIN) return;
   timer += dt;
   if (timer < FLOOR_GUARD_INTERVAL) return;
   timer = 0;
